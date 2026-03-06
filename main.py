@@ -84,6 +84,8 @@ def build_components(cfg: dict) -> tuple:
         max_tokens=llm_cfg["max_tokens"],
         temperature=llm_cfg["temperature"],
         cache_ttl=llm_cfg["cache_ttl_seconds"],
+        base_url=llm_cfg["base_url"],
+        api_key=llm_cfg["api_key"],
     )
 
     planner = Planner()

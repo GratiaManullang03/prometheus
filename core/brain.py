@@ -10,11 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
-import anthropic
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -97,15 +98,26 @@ class ReasoningCache:
 
 
 class Brain:
-    """LLM-powered reasoning engine.
+    """LLM-powered reasoning engine via OpenRouter.
 
-    Uses Claude to analyse the system state and generate
-    ImprovementPlan objects. Results are cached to minimise
+    Uses the OpenAI-compatible OpenRouter API to analyse system state
+    and generate ImprovementPlan objects. Results are cached to minimise
     API usage.
     """
 
-    def __init__(self, model: str, max_tokens: int, temperature: float, cache_ttl: int) -> None:
-        self._client = anthropic.Anthropic()
+    def __init__(
+        self,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        cache_ttl: int,
+        base_url: str = "https://openrouter.ai/api/v1",
+        api_key: str | None = None,
+    ) -> None:
+        self._client = OpenAI(
+            base_url=base_url,
+            api_key=api_key or os.environ["OPENROUTER_API_KEY"],
+        )
         self._model = model
         self._max_tokens = max_tokens
         self._temperature = temperature
@@ -131,19 +143,21 @@ class Brain:
         logger.info("Brain: calling LLM (model=%s)", self._model)
 
         try:
-            response = self._client.messages.create(
+            response = self._client.chat.completions.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
                 temperature=self._temperature,
-                system=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
             )
-            raw = response.content[0].text
+            raw = response.choices[0].message.content or ""
             plan = self._parse_plan(raw)
             self._cache.set(cache_key, plan)
             logger.info("Brain: plan generated (risk=%s approval=%s)", plan.risk, plan.requires_human_approval)
             return plan
-        except anthropic.APIError as exc:
+        except Exception as exc:
             logger.error("Brain: LLM call failed: %s", exc)
             raise
 

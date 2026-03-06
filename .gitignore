@@ -1,11 +1,77 @@
+# ── Secrets ────────────────────────────────────────────────────────────────
 .env
+*.env.*
+!.env.example
+
+# ── Python ─────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
-.cache/
-logs/
-workspace/versions/
-*.tmp
-*.bak
+*.pyd
+*.pyw
+*.pyz
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.virtualenv/
+virtualenv/
+
+# Eggs / distributions
+*.egg
+*.egg-info/
+dist/
+build/
+wheels/
+pip-wheel-metadata/
+.eggs/
+
+# ── Tools cache ────────────────────────────────────────────────────────────
 .mypy_cache/
 .ruff_cache/
+.pytest_cache/
+.cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ── Project runtime data ───────────────────────────────────────────────────
+# Logs are generated at runtime — do not commit
+logs/*.log
+logs/*.log.*
+logs/prompt.md
+
+# knowledge/ — always commit (static reference docs for the system)
+# knowledge/.gitkeep, knowledge/*.md — tracked
+
+# Workspace: source_code is managed by the agent (committed separately per experiment)
+# versions is large binary/snapshot data
+workspace/versions/
+
+# Browser cache
+.cache/browser/
+
+# Temp files from atomic writes
+*.tmp
+*.bak
+
+# ── Docker ─────────────────────────────────────────────────────────────────
+# Ignore local docker build artifacts; not the Dockerfiles themselves
+.docker/
+
+# ── IDE / OS ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Jupyter (if ever used) ─────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Misc ───────────────────────────────────────────────────────────────────
+prompt.md
