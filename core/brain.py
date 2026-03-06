@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from openai import APIStatusError, RateLimitError, OpenAI
+from openai import APIStatusError, AuthenticationError, RateLimitError, OpenAI
 
 from core.model_registry import ModelRegistry, ModelTaskType
 
@@ -251,6 +251,13 @@ class Brain:
                 self._registry.report_failure(model, "rate_limit_429")
                 last_exc = exc
                 logger.warning("Brain: rate limit pada %s — mencoba model lain", model)
+
+            except AuthenticationError:
+                raise SystemExit(
+                    "\n[PROMETHEUS] OPENROUTER_API_KEY tidak valid atau kosong.\n"
+                    "Pastikan .env berisi key yang benar dari https://openrouter.ai/keys\n"
+                    "Contoh: OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxx\n"
+                )
 
             except APIStatusError as exc:
                 if exc.status_code in (429, 502, 503, 529):
