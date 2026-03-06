@@ -30,10 +30,12 @@ from communication.human_approval import (
     HumanApprovalGate,
 )
 from core.brain import Brain, ImprovementPlan
+from core.model_registry import ModelRegistry
 from core.planner import ExecutionPlan, Planner, TaskStatus, TaskType
 from experiments.experiment_manager import ExperimentManager
 from memory.memory_manager import MemoryCategory, MemoryManager
 from tools.browser_agent import BrowserAgent
+from tools.file_editor import FileEditor
 from tools.git_manager import GitManager
 
 logger = logging.getLogger(__name__)
@@ -59,8 +61,15 @@ class SystemState:
             "uptime_seconds": self.uptime_seconds,
             "memory_stats": self.memory_stats,
             "git_status": self.git_status,
-            "recent_failures_count": len(self.recent_failures),
-            "recent_successes_count": len(self.recent_successes),
+            # Kirim konten aktual (bukan hanya hitungan) agar Brain bisa belajar
+            "recent_failures": [
+                {k: v for k, v in f.items() if k in ("description", "error", "plan_id")}
+                for f in self.recent_failures[:3]
+            ],
+            "recent_successes": [
+                {k: v for k, v in s.items() if k in ("description", "plan_id", "summary")}
+                for s in self.recent_successes[:3]
+            ],
             "pending_ideas_count": len(self.pending_ideas),
         }
 
@@ -89,6 +98,8 @@ class AgentLoop:
         memory: MemoryManager,
         git: GitManager,
         browser: BrowserAgent,
+        file_editor: FileEditor,
+        registry: ModelRegistry,
         loop_interval: int = 300,
         goal: str = "Improve agent performance, reliability and capabilities.",
     ) -> None:
@@ -99,6 +110,8 @@ class AgentLoop:
         self._memory = memory
         self._git = git
         self._browser = browser
+        self._file_editor = file_editor
+        self._registry = registry
         self._interval = loop_interval
         self._goal = goal
         self._start_time = time.time()
@@ -237,8 +250,36 @@ class AgentLoop:
     def _handle_code_change(self, task, plan, improvement, patches) -> None:
         target = task.payload.get("target", "")
         description = task.payload.get("description", "")
-        patches[target] = f"# Agent change: {description}\n# TODO: implement via brain\n"
-        logger.info("AgentLoop: code change staged for %s", target)
+        if not target:
+            logger.warning("AgentLoop: code change task tanpa target — skip")
+            return
+
+        # Baca konten file saat ini dari workspace
+        try:
+            current = self._file_editor.read(target)
+        except FileNotFoundError:
+            current = ""
+            logger.info("AgentLoop: %s belum ada — akan dibuat baru", target)
+
+        # Kumpulkan konteks riset dari task sebelumnya
+        research_context = ""
+        for t in plan.tasks:
+            if t.task_type == TaskType.RESEARCH and t.result:
+                research_context = t.result.get("summary", "")
+                break
+
+        # Panggil Brain untuk generate kode yang sebenarnya
+        new_content = self._brain.generate_code(
+            current_content=current,
+            change_description=description,
+            target_path=target,
+            context=research_context,
+        )
+        patches[target] = new_content
+        logger.info(
+            "AgentLoop: kode baru di-stage untuk %s (%d chars)",
+            target, len(new_content),
+        )
 
     def _handle_dependency(self, task, plan, improvement, patches) -> None:
         logger.info("AgentLoop: dependency install requires approval — deferring to approval gate")
@@ -283,7 +324,49 @@ class AgentLoop:
             risk_analysis=improvement.risk,
         )
         self._approval.request_and_wait(ctx)
-        logger.info("AgentLoop: approval received for plan %s", plan.plan_id)
+        logger.info("AgentLoop: approval diterima untuk plan %s", plan.plan_id)
+
+        # Setelah approval — apply patches ke workspace dan tag stable version
+        self._apply_approved_patches(patches, plan.plan_id)
+
+    def _apply_approved_patches(self, patches: dict[str, str], plan_id: str) -> None:
+        """Apply kode yang sudah diapprove ke workspace dan buat stable tag."""
+        if not patches:
+            return
+        try:
+            for rel_path, content in patches.items():
+                self._file_editor.write(rel_path, content)
+                logger.info("AgentLoop: patch applied → %s", rel_path)
+
+            commit_msg = f"feat: approved improvement from plan {plan_id[:8]}"
+            commit_hash = self._git.commit_all(commit_msg)
+
+            # Tentukan nomor versi dari tag terakhir
+            tags = self._git.list_tags()
+            version = self._next_version(tags)
+            self._git.tag(version, f"Stable release after plan {plan_id[:8]}")
+            self._git.checkout("main")
+
+            self._approval.notify(
+                f"Perubahan berhasil di-commit sebagai {version} ({commit_hash[:8]})"
+            )
+            logger.info("AgentLoop: stable version tagged: %s", version)
+        except Exception as exc:
+            logger.error("AgentLoop: gagal apply approved patches: %s", exc)
+
+    @staticmethod
+    def _next_version(tags: list[str]) -> str:
+        """Hitung versi berikutnya dari daftar tag yang ada."""
+        import re
+        versions = []
+        for tag in tags:
+            m = re.match(r"v(\d+)\.(\d+)", tag)
+            if m:
+                versions.append((int(m.group(1)), int(m.group(2))))
+        if not versions:
+            return "v0.1"
+        major, minor = max(versions)
+        return f"v{major}.{minor + 1}"
 
     def _handle_store_memory(self, task, plan, improvement, patches) -> None:
         self._memory.store(MemoryCategory.ARCHITECTURE_DECISIONS, {

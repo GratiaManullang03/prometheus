@@ -26,11 +26,13 @@ from communication.human_approval import HumanApprovalGate
 from communication.telegram_bot import TelegramBot
 from core.agent_loop import AgentLoop
 from core.brain import Brain
+from core.model_registry import ModelRegistry
 from core.planner import Planner
 from experiments.experiment_manager import ExperimentManager
 from memory.memory_manager import MemoryManager
 from tools.browser_agent import BrowserAgent
 from tools.docker_runner import DockerRunner
+from tools.file_editor import FileEditor
 from tools.git_manager import GitManager
 
 
@@ -79,8 +81,12 @@ def build_components(cfg: dict) -> tuple:
     )
 
     llm_cfg = cfg["llm"]
+    registry = ModelRegistry(
+        default_model=llm_cfg["model"],
+        cooldown_seconds=llm_cfg.get("model_cooldown_seconds", 300),
+    )
     brain = Brain(
-        model=llm_cfg["model"],
+        registry=registry,
         max_tokens=llm_cfg["max_tokens"],
         temperature=llm_cfg["temperature"],
         cache_ttl=llm_cfg["cache_ttl_seconds"],
@@ -114,6 +120,8 @@ def build_components(cfg: dict) -> tuple:
         memory=memory,
     )
 
+    file_editor = FileEditor(workspace_root=Path(git_cfg["workspace_path"]))
+
     tg_cfg = cfg["telegram"]
     bot = TelegramBot(
         token=tg_cfg["bot_token"],
@@ -128,7 +136,7 @@ def build_components(cfg: dict) -> tuple:
 
     browser = BrowserAgent()
 
-    return brain, planner, experiments, gate, memory, git, browser, bot
+    return brain, planner, experiments, gate, memory, git, browser, bot, file_editor, registry
 
 
 def main() -> None:
@@ -150,7 +158,7 @@ def main() -> None:
     logger = logging.getLogger("prometheus.main")
     logger.info("Prometheus v%s starting", agent_cfg["version"])
 
-    brain, planner, experiments, gate, memory, git, browser, bot = build_components(cfg)
+    brain, planner, experiments, gate, memory, git, browser, bot, file_editor, registry = build_components(cfg)
 
     loop = AgentLoop(
         brain=brain,
@@ -160,6 +168,8 @@ def main() -> None:
         memory=memory,
         git=git,
         browser=browser,
+        file_editor=file_editor,
+        registry=registry,
         loop_interval=agent_cfg["loop_interval_seconds"],
         goal=args.goal or "Improve agent performance, reliability, and capabilities.",
     )

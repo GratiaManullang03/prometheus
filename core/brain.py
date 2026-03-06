@@ -1,8 +1,13 @@
-"""Core Brain — LLM reasoning controller.
+"""Core Brain — LLM reasoning controller via OpenRouter.
 
-Receives system state and goals, reasons about improvements,
-and produces structured ImprovementPlan objects.
-The brain NEVER directly modifies files or executes commands.
+Dua kemampuan utama:
+  1. reason()         — analisis sistem dan hasilkan ImprovementPlan (JSON)
+  2. generate_code()  — tulis kode nyata berdasarkan deskripsi perubahan
+
+Keduanya menggunakan ModelRegistry untuk auto-fallback ketika model
+terkena rate limit atau error. Model dipilih sesuai jenis task:
+  - reason()         → ModelTaskType.REASONING
+  - generate_code()  → ModelTaskType.CODING
 """
 
 from __future__ import annotations
@@ -12,14 +17,16 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Optional
 
-from openai import OpenAI
+from openai import APIStatusError, RateLimitError, OpenAI
+
+from core.model_registry import ModelRegistry, ModelTaskType
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = """You are the reasoning core of a self-improving autonomous agent named Prometheus.
+_SYSTEM_PROMPT_REASONING = """You are the reasoning core of a self-improving autonomous agent named Prometheus.
 
 Your role:
 - Analyse the current system state and performance metrics.
@@ -48,10 +55,19 @@ Rules:
 - Never propose changes to immutable_rules.
 """
 
+_SYSTEM_PROMPT_CODING = """You are an expert Python software engineer.
+You will be given: current file content, a description of changes needed, and context.
+Your task: produce the COMPLETE new file content with the requested changes applied.
+Output ONLY the raw Python code — no markdown fences, no explanation.
+The code must be syntactically valid Python.
+"""
+
+_MAX_RETRIES = 3
+
 
 @dataclass
 class ImprovementPlan:
-    """Structured output from the Brain."""
+    """Structured output dari reasoning Brain."""
 
     problem: str
     root_cause: str
@@ -77,7 +93,7 @@ class ImprovementPlan:
 
 
 class ReasoningCache:
-    """Simple TTL cache to avoid redundant LLM calls."""
+    """TTL cache untuk hindari LLM call berulang."""
 
     def __init__(self, ttl_seconds: int = 3600) -> None:
         self._store: dict[str, tuple[Any, float]] = {}
@@ -98,87 +114,180 @@ class ReasoningCache:
 
 
 class Brain:
-    """LLM-powered reasoning engine via OpenRouter.
+    """LLM reasoning engine dengan auto model-switching via OpenRouter.
 
-    Uses the OpenAI-compatible OpenRouter API to analyse system state
-    and generate ImprovementPlan objects. Results are cached to minimise
-    API usage.
+    Args:
+        registry: ModelRegistry untuk pemilihan dan health tracking model.
+        max_tokens: Max token per response.
+        temperature: Sampling temperature.
+        cache_ttl: TTL cache reasoning dalam detik.
+        base_url: OpenRouter API base URL.
+        api_key: OpenRouter API key.
     """
 
     def __init__(
         self,
-        model: str,
+        registry: ModelRegistry,
         max_tokens: int,
         temperature: float,
         cache_ttl: int,
         base_url: str = "https://openrouter.ai/api/v1",
-        api_key: str | None = None,
+        api_key: Optional[str] = None,
     ) -> None:
         self._client = OpenAI(
             base_url=base_url,
             api_key=api_key or os.environ["OPENROUTER_API_KEY"],
         )
-        self._model = model
+        self._registry = registry
         self._max_tokens = max_tokens
         self._temperature = temperature
         self._cache = ReasoningCache(ttl_seconds=cache_ttl)
 
     def reason(self, system_state: dict[str, Any], goal: str) -> ImprovementPlan:
-        """Analyse system state and produce an improvement plan.
+        """Analisis state sistem dan hasilkan ImprovementPlan.
 
         Args:
-            system_state: Snapshot of the agent's current condition.
-            goal: High-level objective for this reasoning cycle.
+            system_state: Snapshot kondisi agent saat ini.
+            goal: Objective tingkat tinggi untuk siklus ini.
 
         Returns:
-            A validated ImprovementPlan.
+            ImprovementPlan yang tervalidasi.
         """
         cache_key = self._make_cache_key(system_state, goal)
         cached = self._cache.get(cache_key)
         if cached is not None:
-            logger.info("Brain: returning cached reasoning result")
+            logger.info("Brain.reason: cache hit")
             return cached
 
-        user_message = self._build_user_message(system_state, goal)
-        logger.info("Brain: calling LLM (model=%s)", self._model)
+        user_msg = self._build_reason_message(system_state, goal)
+        raw = self._call_with_fallback(
+            system=_SYSTEM_PROMPT_REASONING,
+            user=user_msg,
+            task_type=ModelTaskType.REASONING,
+        )
+        plan = self._parse_plan(raw)
+        self._cache.set(cache_key, plan)
+        logger.info(
+            "Brain.reason: plan dibuat (risk=%s approval=%s)",
+            plan.risk, plan.requires_human_approval,
+        )
+        return plan
 
-        try:
-            response = self._client.chat.completions.create(
-                model=self._model,
-                max_tokens=self._max_tokens,
-                temperature=self._temperature,
-                messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message},
-                ],
+    def generate_code(
+        self,
+        current_content: str,
+        change_description: str,
+        target_path: str,
+        context: str = "",
+    ) -> str:
+        """Generate kode baru berdasarkan deskripsi perubahan.
+
+        Args:
+            current_content: Isi file saat ini.
+            change_description: Penjelasan perubahan yang diinginkan.
+            target_path: Path file target (untuk konteks).
+            context: Informasi tambahan (hasil riset, error, dll).
+
+        Returns:
+            Isi file baru yang lengkap dan valid.
+        """
+        user_msg = (
+            f"FILE: {target_path}\n\n"
+            f"PERUBAHAN YANG DIMINTA:\n{change_description}\n\n"
+            + (f"KONTEKS TAMBAHAN:\n{context}\n\n" if context else "")
+            + f"KODE SAAT INI:\n{current_content}\n\n"
+            "Tulis versi baru yang lengkap dari file ini dengan perubahan tersebut diterapkan."
+        )
+        code = self._call_with_fallback(
+            system=_SYSTEM_PROMPT_CODING,
+            user=user_msg,
+            task_type=ModelTaskType.CODING,
+        )
+        # Bersihkan markdown fence jika model tetap menambahkannya
+        code = self._strip_markdown(code)
+        logger.info("Brain.generate_code: kode baru untuk %s (%d chars)", target_path, len(code))
+        return code
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _call_with_fallback(
+        self,
+        system: str,
+        user: str,
+        task_type: ModelTaskType,
+    ) -> str:
+        """Panggil LLM dengan retry dan auto model-switching.
+
+        Urutan:
+          1. Coba model terbaik yang tersedia untuk task_type ini
+          2. Jika rate limit / server error → report_failure → coba model berikutnya
+          3. Setelah _MAX_RETRIES → raise exception
+        """
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(_MAX_RETRIES):
+            model = self._registry.get_model(task_type)
+            logger.info(
+                "Brain: LLM call attempt %d/%d model=%s task=%s",
+                attempt + 1, _MAX_RETRIES, model, task_type.value,
             )
-            raw = response.choices[0].message.content or ""
-            plan = self._parse_plan(raw)
-            self._cache.set(cache_key, plan)
-            logger.info("Brain: plan generated (risk=%s approval=%s)", plan.risk, plan.requires_human_approval)
-            return plan
-        except Exception as exc:
-            logger.error("Brain: LLM call failed: %s", exc)
-            raise
+            try:
+                response = self._client.chat.completions.create(
+                    model=model,
+                    max_tokens=self._max_tokens,
+                    temperature=self._temperature,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                )
+                content = response.choices[0].message.content or ""
+                self._registry.report_success(model)
+                return content
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+            except RateLimitError as exc:
+                self._registry.report_failure(model, "rate_limit_429")
+                last_exc = exc
+                logger.warning("Brain: rate limit pada %s — mencoba model lain", model)
 
-    def _build_user_message(self, state: dict[str, Any], goal: str) -> str:
+            except APIStatusError as exc:
+                if exc.status_code in (429, 502, 503, 529):
+                    self._registry.report_failure(model, f"http_{exc.status_code}")
+                    last_exc = exc
+                    logger.warning(
+                        "Brain: error %d pada %s — mencoba model lain",
+                        exc.status_code, model,
+                    )
+                else:
+                    logger.error("Brain: error tidak di-retry (%d): %s", exc.status_code, exc)
+                    raise
+
+            except Exception as exc:
+                logger.error("Brain: exception tidak terduga: %s", exc)
+                raise
+
+        logger.error("Brain: semua %d attempt gagal untuk task=%s", _MAX_RETRIES, task_type.value)
+        raise RuntimeError(
+            f"Brain: LLM call gagal setelah {_MAX_RETRIES} attempt. "
+            f"Last error: {last_exc}"
+        )
+
+    def _build_reason_message(self, state: dict[str, Any], goal: str) -> str:
         return (
             f"GOAL: {goal}\n\n"
             f"SYSTEM STATE:\n{json.dumps(state, indent=2)}\n\n"
-            "Analyse the state, identify the most impactful weakness, "
-            "and produce an improvement plan as described."
+            "Analisis state, identifikasi kelemahan paling berdampak, "
+            "dan buat improvement plan sesuai schema."
         )
 
     def _parse_plan(self, raw: str) -> ImprovementPlan:
-        """Extract JSON from LLM response and validate it."""
+        """Extract JSON dari response LLM dan validasi."""
         start = raw.find("{")
         end = raw.rfind("}") + 1
         if start == -1 or end == 0:
-            raise ValueError(f"No JSON found in LLM response: {raw[:200]}")
+            raise ValueError(f"Tidak ada JSON dalam response LLM: {raw[:200]}")
         data = json.loads(raw[start:end])
         return ImprovementPlan(
             problem=data.get("problem", ""),
@@ -191,6 +300,19 @@ class Brain:
             estimated_complexity=data.get("estimated_complexity", "unknown"),
             raw_response=raw,
         )
+
+    @staticmethod
+    def _strip_markdown(code: str) -> str:
+        """Hapus markdown code fence jika model tetap menambahkannya."""
+        code = code.strip()
+        if code.startswith("```"):
+            lines = code.splitlines()
+            # Hapus baris pertama (```python atau ```) dan baris terakhir (```)
+            inner = lines[1:] if len(lines) > 1 else lines
+            if inner and inner[-1].strip() == "```":
+                inner = inner[:-1]
+            code = "\n".join(inner)
+        return code.strip()
 
     @staticmethod
     def _make_cache_key(state: dict[str, Any], goal: str) -> str:

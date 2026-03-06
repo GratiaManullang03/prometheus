@@ -12,6 +12,7 @@ llm:
   max_tokens: 4096
   temperature: 0.3
   cache_ttl_seconds: 3600
+  model_cooldown_seconds: 300   # detik sebelum retry model yang kena rate limit
   api_key: "${OPENROUTER_API_KEY}"
 
 telegram:

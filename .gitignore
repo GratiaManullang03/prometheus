@@ -42,6 +42,7 @@ coverage.xml
 logs/*.log
 logs/*.log.*
 logs/prompt.md
+logs/*.txt
 
 # knowledge/ — always commit (static reference docs for the system)
 # knowledge/.gitkeep, knowledge/*.md — tracked
