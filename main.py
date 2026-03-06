@@ -17,7 +17,11 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
 import yaml
+
+# Load .env sebelum apapun — variabel di sini akan tersedia via os.environ
+load_dotenv(Path(__file__).parent / ".env")
 
 # Ensure project root is on the path
 sys.path.insert(0, str(Path(__file__).parent))
