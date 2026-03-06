@@ -58,6 +58,7 @@ class TelegramBot:
         self._last_update_id: int = 0
         self._running = False
         self._poll_thread: Optional[threading.Thread] = None
+        self._status_provider: Optional[Callable[[], str]] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -111,6 +112,10 @@ class TelegramBot:
             if req:
                 req._callback = on_decision  # type: ignore[attr-defined]
 
+    def set_status_provider(self, provider: Callable[[], str]) -> None:
+        """Register a callable that returns a formatted agent status string."""
+        self._status_provider = provider
+
     # ------------------------------------------------------------------
 
     def _poll_loop(self) -> None:
@@ -149,6 +154,38 @@ class TelegramBot:
         """Dispatch update to appropriate handler."""
         if "callback_query" in update:
             self._handle_callback(update["callback_query"])
+        elif "message" in update:
+            self._handle_message(update["message"])
+
+    def _handle_message(self, message: dict) -> None:
+        """Handle plain text messages and commands from the operator."""
+        sender_id = str(message.get("from", {}).get("id", ""))
+        if sender_id != str(self._chat_id):
+            logger.warning("TelegramBot: unauthorized message from user %s — ignored", sender_id)
+            return
+
+        text = message.get("text", "").strip()
+        if not text:
+            return
+
+        if text.startswith("/status") or text.lower() in ("status",):
+            self._send_status()
+        elif text.startswith("/help"):
+            self.send_message("Perintah tersedia:\n/status — lihat kondisi agen\n/help — tampilkan bantuan ini")
+        else:
+            self._send_status()
+
+    def _send_status(self) -> None:
+        """Send current agent status to operator."""
+        if self._status_provider is None:
+            self.send_message("Status provider belum terdaftar.")
+            return
+        try:
+            status_text = self._status_provider()
+            self.send_message(status_text)
+        except Exception as exc:
+            logger.error("TelegramBot: gagal ambil status: %s", exc)
+            self.send_message("Gagal mengambil status agen.")
 
     def _handle_callback(self, callback: dict) -> None:
         """Process inline keyboard callback (approve/reject)."""

@@ -1,7 +1,18 @@
 {
   "version": "1.0",
   "created_at": null,
-  "architecture_decisions": [],
+  "architecture_decisions": [
+    {
+      "id": "6a553ba9-ca16-43b8-8612-c2c74ae5a7c9",
+      "category": "architecture_decisions",
+      "content": {
+        "plan_id": "de837e7b-124",
+        "summary": "Implement basic knowledge storage system to track architecture decisions, tool documentation, and past failures/successes",
+        "outcome": "completed"
+      },
+      "created_at": "2026-03-06T10:09:17.747476+00:00"
+    }
+  ],
   "tool_documentation": [
     {
       "id": "8c218350-37e2-4a6f-84ef-9b6c0ec879ea",
@@ -14,7 +25,33 @@
     }
   ],
   "past_failures": [],
-  "successful_improvements": [],
+  "successful_improvements": [
+    {
+      "id": "a225dfd1-701d-43f2-9a9c-a44cd5b32b2f",
+      "category": "successful_improvements",
+      "content": {
+        "experiment_id": "ef23df68-7ed",
+        "plan_id": "de837e7b-124",
+        "branch_name": "experiment/ef23df68-7ed",
+        "description": "No tool documentation, architecture decisions, or past failures stored - no knowledge base for self-improvement",
+        "state": "success",
+        "result": {
+          "experiment_id": "ef23df68-7ed",
+          "image_tag": "prometheus-exp-ef23df68-7ed",
+          "exit_code": 0,
+          "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.12.12, pytest-9.0.2, pluggy-1.6.0 -- /usr/local/bin/python\ncachedir: .pytest_cache\nrootdir: /workspace\ncollecting ... collected 13 items\n\ntests/test_analyzer.py::TestTextStats::test_basic_counts PASSED          [  7%]\ntests/test_analyzer.py::TestTextStats::test_empty_text PASSED            [ 15%]\ntests/test_analyzer.py::TestTextStats::test_lexical_diversity_range PASSED [ 23%]\ntests/test_analyzer.py::TestTextStats::test_avg_word_length_positive PASSED [ 30%]\ntests/test_analyzer.py::TestTextAnalyzer::test_top_words_length PASSED   [ 38%]\ntests/test_analyzer.py::TestTextAnalyzer::test_top_words_sorted PASSED   [ 46%]\ntests/test_analyzer.py::TestTextAnalyzer::test_keyword_density_range PASSED [ 53%]\ntests/test_analyzer.py::TestTextAnalyzer::test_keyword_density_zero_missing PASSED [ 61%]\ntests/test_analyzer.py::TestTextAnalyzer::test_sentences_not_empty PASSED [ 69%]\ntests/test_analyzer.py::TestTextAnalyzer::test_summary_respects_limit PASSED [ 76%]\ntests/test_analyzer.py::TestTextAnalyzer::test_stats_cached PASSED       [ 84%]\ntests/test_analyzer.py::TestFormatter::test_report_contains_sections PASSED [ 92%]\ntests/test_analyzer.py::TestFormatter::test_report_with_top_words PASSED [100%]\n\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475\n  /usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /workspace/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/workspace/pytest-cache-files-iz723y21'\n    config.cache.set(\"cache/nodeids\", sorted(self.cached_nodeids))\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 13 passed, 1 warning in 0.03s =========================\n",
+          "stderr": "",
+          "success": true,
+          "error": null,
+          "logs_path": "logs/experiment_ef23df68-7ed.log"
+        },
+        "started_at": "2026-03-06T10:06:11.906527+00:00",
+        "finished_at": "2026-03-06T10:09:17.746388+00:00",
+        "error": null
+      },
+      "created_at": "2026-03-06T10:09:17.746626+00:00"
+    }
+  ],
   "ideas_backlog": [],
   "experiment_results": []
 }

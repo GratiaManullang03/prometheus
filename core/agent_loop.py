@@ -150,6 +150,37 @@ class AgentLoop:
         self._running = False
         logger.info("AgentLoop: stop requested")
 
+    def get_status(self) -> str:
+        """Return a formatted human-readable status string for the operator."""
+        uptime = int(time.time() - self._start_time)
+        hours, rem = divmod(uptime, 3600)
+        minutes, seconds = divmod(rem, 60)
+
+        mem_stats = self._memory.stats()
+        model_health = self._registry.status()
+
+        available = [mid for mid, info in model_health.items() if info["available"]]
+        cooling = [mid.split("/")[-1] for mid, info in model_health.items() if info["cooling_down"]]
+
+        lines = [
+            "=== Prometheus Agent Status ===",
+            f"Uptime  : {hours}h {minutes}m {seconds}s",
+            f"Running : {'Ya' if self._running else 'Tidak (idle)'}",
+            "",
+            "Memory entries:",
+        ]
+        for cat, count in mem_stats.items():
+            lines.append(f"  {cat}: {count}")
+
+        lines += [
+            "",
+            f"Models  : {len(available)} tersedia, {len(cooling)} cooling down",
+        ]
+        if cooling:
+            lines.append("Cooling : " + ", ".join(cooling[:3]))
+
+        return "\n".join(lines)
+
     # ------------------------------------------------------------------
     # Cycle
     # ------------------------------------------------------------------

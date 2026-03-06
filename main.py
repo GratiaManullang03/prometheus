@@ -178,6 +178,8 @@ def main() -> None:
         goal=args.goal or "Improve agent performance, reliability, and capabilities.",
     )
 
+    bot.set_status_provider(loop.get_status)
+
     try:
         if args.once:
             import uuid
