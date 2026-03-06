@@ -53,6 +53,10 @@ Rules:
   deployment, external scripts, money spending, or deleting versions.
 - Prefer low-risk incremental changes.
 - Never propose changes to immutable_rules.
+- ONLY propose changes to files listed in workspace_files. Do NOT invent new filenames.
+- Prefer modifying existing files over creating new ones.
+- New files must be small and focused — do not generate files larger than 150 lines.
+- Config files (JSON, YAML) should only be created if clearly justified and minimal.
 """
 
 _SYSTEM_PROMPT_CODING = """You are an expert Python software engineer.

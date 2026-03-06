@@ -53,6 +53,7 @@ class SystemState:
     recent_failures: list[dict]
     recent_successes: list[dict]
     pending_ideas: list[dict]
+    workspace_files: list[str] = None  # type: ignore[assignment]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -61,6 +62,7 @@ class SystemState:
             "uptime_seconds": self.uptime_seconds,
             "memory_stats": self.memory_stats,
             "git_status": self.git_status,
+            "workspace_files": self.workspace_files or [],
             # Kirim konten aktual (bukan hanya hitungan) agar Brain bisa belajar
             "recent_failures": [
                 {k: v for k, v in f.items() if k in ("description", "error", "plan_id")}
@@ -216,7 +218,20 @@ class AgentLoop:
             recent_failures=self._memory.retrieve(MemoryCategory.PAST_FAILURES, limit=5),
             recent_successes=self._memory.retrieve(MemoryCategory.SUCCESSFUL_IMPROVEMENTS, limit=5),
             pending_ideas=self._memory.retrieve(MemoryCategory.IDEAS_BACKLOG, limit=10),
+            workspace_files=self._list_workspace_files(),
         )
+
+    def _list_workspace_files(self) -> list[str]:
+        """List Python source files in the workspace (for Brain context)."""
+        try:
+            root = self._file_editor._root
+            return sorted(
+                str(p.relative_to(root))
+                for p in root.rglob("*.py")
+                if ".git" not in p.parts and "__pycache__" not in p.parts
+            )[:30]
+        except Exception:
+            return []
 
     def _execute_plan(self, plan: ExecutionPlan, improvement: ImprovementPlan) -> None:
         """Walk through plan tasks and execute each one."""
@@ -239,6 +254,34 @@ class AgentLoop:
                 task.status = TaskStatus.FAILED
                 self._skip_remaining(plan, task.task_id)
                 break
+
+        self._maybe_auto_apply(code_patches, plan, improvement)
+
+    def _maybe_auto_apply(
+        self, patches: dict[str, str], plan: ExecutionPlan, improvement: ImprovementPlan
+    ) -> None:
+        """Auto-persist patches for low-risk plans that passed Docker tests."""
+        if improvement.requires_human_approval or not patches:
+            return
+        docker_passed = any(
+            t.task_type == TaskType.DOCKER_TEST and t.status == TaskStatus.COMPLETED
+            for t in plan.tasks
+        )
+        if docker_passed:
+            self._auto_apply_patches(patches, plan.plan_id)
+
+    def _auto_apply_patches(self, patches: dict[str, str], plan_id: str) -> None:
+        """Write low-risk patches to workspace and commit."""
+        try:
+            for rel_path, content in patches.items():
+                self._file_editor.write(rel_path, content)
+                logger.info("AgentLoop: auto-applied → %s", rel_path)
+            commit_msg = f"feat: auto-applied improvement from plan {plan_id[:8]}"
+            self._git.commit_all(commit_msg)
+            self._git.checkout("main")
+            logger.info("AgentLoop: low-risk patches committed for plan %s", plan_id[:8])
+        except Exception as exc:
+            logger.error("AgentLoop: gagal auto-apply patches: %s", exc)
 
     def _dispatch_task(
         self,
