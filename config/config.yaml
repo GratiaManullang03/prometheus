@@ -1,0 +1,55 @@
+agent:
+  name: "prometheus"
+  version: "0.1.0"
+  loop_interval_seconds: 300
+  max_experiments_per_cycle: 3
+  log_level: "INFO"
+
+llm:
+  provider: "anthropic"
+  model: "claude-sonnet-4-6"
+  max_tokens: 4096
+  temperature: 0.3
+  cache_ttl_seconds: 3600
+
+telegram:
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  chat_id: "${TELEGRAM_CHAT_ID}"
+  approval_timeout_seconds: 86400  # 24 hours
+
+docker:
+  base_image: "python:3.12-slim"
+  network: "none"
+  memory_limit: "512m"
+  cpu_limit: "1.0"
+  timeout_seconds: 300
+  workspace_mount: "/workspace"
+
+git:
+  workspace_path: "./workspace/source_code"
+  versions_path: "./workspace/versions"
+  default_branch: "main"
+  experimental_branch_prefix: "experiment"
+
+memory:
+  db_path: "./memory/knowledge_base.json"
+  max_entries_per_category: 1000
+  prune_threshold: 900
+
+logging:
+  path: "./logs"
+  max_file_size_mb: 100
+  backup_count: 10
+
+immutable_rules:
+  require_approval_for:
+    - "modify_core_architecture"
+    - "deploy_new_version"
+    - "install_dependencies"
+    - "execute_external_script"
+    - "spend_money"
+    - "delete_versions"
+  never_allowed:
+    - "delete_memory_history"
+    - "modify_immutable_rules"
+    - "skip_approval"

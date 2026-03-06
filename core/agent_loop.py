@@ -1,0 +1,306 @@
+"""Agent loop — the main autonomous execution cycle.
+
+Continuously:
+  1. Observes system state
+  2. Identifies weaknesses via the Brain
+  3. Builds an ExecutionPlan via the Planner
+  4. Executes tasks (with approval gate where required)
+  5. Stores results to memory
+  6. Sleeps until next cycle
+
+Transaction Boundary: none (stateless cycle, each task is atomic via Docker)
+Async Tasks: Telegram polling runs in background thread
+Commit Point: after each completed cycle
+Rollback Strategy: GitManager.rollback_to on experiment failure
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from communication.human_approval import (
+    ApprovalContext,
+    ApprovalRejected,
+    ApprovalTimeout,
+    HumanApprovalGate,
+)
+from core.brain import Brain, ImprovementPlan
+from core.planner import ExecutionPlan, Planner, TaskStatus, TaskType
+from experiments.experiment_manager import ExperimentManager
+from memory.memory_manager import MemoryCategory, MemoryManager
+from tools.browser_agent import BrowserAgent
+from tools.git_manager import GitManager
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SystemState:
+    """Snapshot of agent health at the start of a cycle."""
+
+    cycle_id: str
+    timestamp: str
+    uptime_seconds: float
+    memory_stats: dict[str, int]
+    git_status: dict[str, Any]
+    recent_failures: list[dict]
+    recent_successes: list[dict]
+    pending_ideas: list[dict]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "cycle_id": self.cycle_id,
+            "timestamp": self.timestamp,
+            "uptime_seconds": self.uptime_seconds,
+            "memory_stats": self.memory_stats,
+            "git_status": self.git_status,
+            "recent_failures_count": len(self.recent_failures),
+            "recent_successes_count": len(self.recent_successes),
+            "pending_ideas_count": len(self.pending_ideas),
+        }
+
+
+class AgentLoop:
+    """Main autonomous agent execution loop.
+
+    Args:
+        brain: LLM reasoning engine.
+        planner: Task sequence builder.
+        experiment_manager: Docker experiment runner.
+        approval_gate: Human approval interface.
+        memory: Persistent knowledge store.
+        git: Version control manager.
+        browser: Internet research tool.
+        loop_interval: Seconds to sleep between cycles.
+        goal: High-level objective for this agent instance.
+    """
+
+    def __init__(
+        self,
+        brain: Brain,
+        planner: Planner,
+        experiment_manager: ExperimentManager,
+        approval_gate: HumanApprovalGate,
+        memory: MemoryManager,
+        git: GitManager,
+        browser: BrowserAgent,
+        loop_interval: int = 300,
+        goal: str = "Improve agent performance, reliability and capabilities.",
+    ) -> None:
+        self._brain = brain
+        self._planner = planner
+        self._experiments = experiment_manager
+        self._approval = approval_gate
+        self._memory = memory
+        self._git = git
+        self._browser = browser
+        self._interval = loop_interval
+        self._goal = goal
+        self._start_time = time.time()
+        self._running = False
+
+    # ------------------------------------------------------------------
+    # Public
+    # ------------------------------------------------------------------
+
+    def run_forever(self) -> None:
+        """Start the infinite agent loop."""
+        self._running = True
+        logger.info("AgentLoop: starting (interval=%ds)", self._interval)
+        self._approval.notify("Prometheus agent started. Loop interval: %ds." % self._interval)
+
+        while self._running:
+            cycle_id = str(uuid.uuid4())[:12]
+            try:
+                self._run_cycle(cycle_id)
+            except KeyboardInterrupt:
+                logger.info("AgentLoop: interrupted by user")
+                self._running = False
+                break
+            except Exception as exc:
+                logger.error("AgentLoop: unhandled exception in cycle %s: %s", cycle_id, exc)
+                self._memory.store(
+                    MemoryCategory.PAST_FAILURES,
+                    {"cycle_id": cycle_id, "error": str(exc), "phase": "agent_loop"},
+                )
+            if self._running:
+                logger.info("AgentLoop: sleeping %ds until next cycle", self._interval)
+                time.sleep(self._interval)
+
+    def stop(self) -> None:
+        """Request graceful shutdown after current cycle."""
+        self._running = False
+        logger.info("AgentLoop: stop requested")
+
+    # ------------------------------------------------------------------
+    # Cycle
+    # ------------------------------------------------------------------
+
+    def _run_cycle(self, cycle_id: str) -> None:
+        logger.info("=== CYCLE %s START ===", cycle_id)
+
+        state = self._observe(cycle_id)
+        logger.info("AgentLoop: state observed — %d failures, %d successes in memory",
+                    len(state.recent_failures), len(state.recent_successes))
+
+        plan_obj = self._brain.reason(state.to_dict(), self._goal)
+        logger.info("AgentLoop: brain produced plan (risk=%s)", plan_obj.risk)
+
+        exec_plan = self._planner.build(plan_obj, cycle_id)
+        self._execute_plan(exec_plan, plan_obj)
+
+        logger.info("=== CYCLE %s END ===", cycle_id)
+
+    def _observe(self, cycle_id: str) -> SystemState:
+        """Build a snapshot of the current agent state."""
+        try:
+            git_status = vars(self._git.status())
+        except Exception:
+            git_status = {"error": "git unavailable"}
+
+        return SystemState(
+            cycle_id=cycle_id,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            uptime_seconds=time.time() - self._start_time,
+            memory_stats=self._memory.stats(),
+            git_status=git_status,
+            recent_failures=self._memory.retrieve(MemoryCategory.PAST_FAILURES, limit=5),
+            recent_successes=self._memory.retrieve(MemoryCategory.SUCCESSFUL_IMPROVEMENTS, limit=5),
+            pending_ideas=self._memory.retrieve(MemoryCategory.IDEAS_BACKLOG, limit=10),
+        )
+
+    def _execute_plan(self, plan: ExecutionPlan, improvement: ImprovementPlan) -> None:
+        """Walk through plan tasks and execute each one."""
+        code_patches: dict[str, str] = {}
+
+        for task in plan.tasks:
+            if task.status in (TaskStatus.COMPLETED, TaskStatus.SKIPPED):
+                continue
+            task.status = TaskStatus.IN_PROGRESS
+            try:
+                self._dispatch_task(task, plan, improvement, code_patches)
+                task.status = TaskStatus.COMPLETED
+            except (ApprovalRejected, ApprovalTimeout) as exc:
+                logger.warning("AgentLoop: task %s halted: %s", task.task_id, exc)
+                task.status = TaskStatus.SKIPPED
+                self._skip_remaining(plan, task.task_id)
+                break
+            except Exception as exc:
+                logger.error("AgentLoop: task %s failed: %s", task.task_id, exc)
+                task.status = TaskStatus.FAILED
+                self._skip_remaining(plan, task.task_id)
+                break
+
+    def _dispatch_task(
+        self,
+        task,
+        plan: ExecutionPlan,
+        improvement: ImprovementPlan,
+        code_patches: dict[str, str],
+    ) -> None:
+        """Route a task to the appropriate handler."""
+        handlers = {
+            TaskType.RESEARCH: self._handle_research,
+            TaskType.CODE_CHANGE: self._handle_code_change,
+            TaskType.CONFIG_CHANGE: self._handle_code_change,
+            TaskType.DEPENDENCY_INSTALL: self._handle_dependency,
+            TaskType.DOCKER_TEST: self._handle_docker_test,
+            TaskType.EVALUATE: self._handle_evaluate,
+            TaskType.REQUEST_APPROVAL: self._handle_approval,
+            TaskType.STORE_MEMORY: self._handle_store_memory,
+            TaskType.ROLLBACK: self._handle_rollback,
+        }
+        handler = handlers.get(task.task_type)
+        if handler is None:
+            logger.warning("AgentLoop: no handler for task type %s", task.task_type)
+            return
+        handler(task, plan, improvement, code_patches)
+
+    # ------------------------------------------------------------------
+    # Task handlers
+    # ------------------------------------------------------------------
+
+    def _handle_research(self, task, plan, improvement, patches) -> None:
+        query = task.payload.get("query", improvement.proposed_solution)
+        result = self._browser.research(query)
+        task.result = {"summary": result.summary, "sources": len(result.fetched_content)}
+        self._memory.store(MemoryCategory.TOOL_DOCUMENTATION, {
+            "query": query,
+            "summary": result.summary,
+        })
+
+    def _handle_code_change(self, task, plan, improvement, patches) -> None:
+        target = task.payload.get("target", "")
+        description = task.payload.get("description", "")
+        patches[target] = f"# Agent change: {description}\n# TODO: implement via brain\n"
+        logger.info("AgentLoop: code change staged for %s", target)
+
+    def _handle_dependency(self, task, plan, improvement, patches) -> None:
+        logger.info("AgentLoop: dependency install requires approval — deferring to approval gate")
+        ctx = ApprovalContext(
+            proposal=f"Install dependency: {task.payload.get('target', 'unknown')}",
+            reason=task.description,
+            expected_benefit=improvement.expected_benefit,
+            risk_analysis="New dependencies may introduce security vulnerabilities.",
+        )
+        self._approval.request_and_wait(ctx)
+
+    def _handle_docker_test(self, task, plan, improvement, patches) -> None:
+        exp = self._experiments.run(
+            plan_id=plan.plan_id,
+            description=improvement.problem,
+            code_patches=patches,
+        )
+        task.result = exp.to_dict()
+        if exp.state.value not in ("success",):
+            raise RuntimeError(f"Experiment failed: {exp.error}")
+
+    def _handle_evaluate(self, task, plan, improvement, patches) -> None:
+        docker_task = next(
+            (t for t in plan.tasks if t.task_type == TaskType.DOCKER_TEST), None
+        )
+        success = (
+            docker_task is not None
+            and docker_task.status == TaskStatus.COMPLETED
+            and docker_task.result.get("state") == "success"
+        )
+        task.result = {
+            "passed": success,
+            "expected": improvement.expected_benefit,
+        }
+        logger.info("AgentLoop: evaluation passed=%s", success)
+
+    def _handle_approval(self, task, plan, improvement, patches) -> None:
+        ctx = ApprovalContext(
+            proposal=improvement.proposed_solution,
+            reason=improvement.root_cause,
+            expected_benefit=improvement.expected_benefit,
+            risk_analysis=improvement.risk,
+        )
+        self._approval.request_and_wait(ctx)
+        logger.info("AgentLoop: approval received for plan %s", plan.plan_id)
+
+    def _handle_store_memory(self, task, plan, improvement, patches) -> None:
+        self._memory.store(MemoryCategory.ARCHITECTURE_DECISIONS, {
+            "plan_id": plan.plan_id,
+            "summary": improvement.proposed_solution,
+            "outcome": "pending_approval" if plan.requires_approval else "completed",
+        })
+
+    def _handle_rollback(self, task, plan, improvement, patches) -> None:
+        logger.info("AgentLoop: rollback task triggered")
+
+    @staticmethod
+    def _skip_remaining(plan: ExecutionPlan, from_task_id: str) -> None:
+        skip = False
+        for task in plan.tasks:
+            if task.task_id == from_task_id:
+                skip = True
+                continue
+            if skip:
+                task.status = TaskStatus.SKIPPED

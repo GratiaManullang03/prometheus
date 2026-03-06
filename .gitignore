@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.cache/
+logs/
+workspace/versions/
+*.tmp
+*.bak
+.mypy_cache/
+.ruff_cache/

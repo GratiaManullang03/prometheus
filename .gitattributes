@@ -1,0 +1,32 @@
+# Normalize line endings
+* text=auto eol=lf
+
+# Force LF for shell scripts and Python
+*.py text eol=lf
+*.sh text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.cfg text eol=lf
+*.toml text eol=lf
+
+# Dockerfile treated as text
+Dockerfile text eol=lf
+
+# Binary files — no diff, no merge
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar binary
+*.gz binary
+
+# Mark generated/vendor files as non-diffable
+memory/knowledge_base.json linguist-generated=true
+logs/** linguist-generated=true
+workspace/** linguist-vendored=true

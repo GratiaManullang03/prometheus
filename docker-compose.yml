@@ -1,0 +1,48 @@
+services:
+  prometheus:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+    container_name: prometheus-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Workspace — agent reads/writes code here
+      - ./workspace:/app/workspace
+      # Memory — persists across restarts
+      - ./memory:/app/memory
+      # Logs — persists across restarts
+      - ./logs:/app/logs
+      # Docker socket — allows agent to spawn experiment containers
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - AGENT_WORKSPACE=/app/workspace/source_code
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    working_dir: /app
+    command: ["python", "main.py"]
+    # SECURITY NOTE: Docker socket gives container equivalent power to host root.
+    # In production, replace with a scoped socket proxy (e.g. tecnativa/docker-socket-proxy)
+    # that allows only: build, create, start, logs, inspect, remove — and blocks privileged/bind mounts.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID   # required for docker group membership
+      - SETGID
+    networks:
+      - prometheus-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib; pathlib.Path('logs/agent.log').exists() or exit(1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  prometheus-net:
+    driver: bridge
+    # Experiment containers run with --network none separately
+    # Only the main agent container uses this network (for Telegram + Anthropic API)

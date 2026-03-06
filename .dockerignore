@@ -1,0 +1,52 @@
+# Version control
+.git
+.gitattributes
+.gitignore
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv
+venv
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets — NEVER in container
+.env
+*.env
+
+# Logs (mounted as volume at runtime)
+logs/
+
+# Workspace versions (large, mounted as volume)
+workspace/versions/
+
+# Cache
+.cache/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Docs
+prompt.md
+*.md
+
+# Test artifacts
+.coverage
+coverage.xml
+htmlcov/
