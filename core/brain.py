@@ -62,7 +62,9 @@ Output ONLY the raw Python code — no markdown fences, no explanation.
 The code must be syntactically valid Python.
 """
 
-_MAX_RETRIES = 3
+# Jumlah maksimal percobaan = jumlah model terpanjang di katalog (6 untuk REASONING)
+# Sehingga semua kandidat sempat dicoba sebelum menyerah
+_MAX_RETRIES = 6
 
 
 @dataclass
@@ -137,6 +139,7 @@ class Brain:
         self._client = OpenAI(
             base_url=base_url,
             api_key=api_key or os.environ["OPENROUTER_API_KEY"],
+            max_retries=0,  # kita handle retry sendiri via model registry
         )
         self._registry = registry
         self._max_tokens = max_tokens
@@ -260,12 +263,18 @@ class Brain:
                 )
 
             except APIStatusError as exc:
-                if exc.status_code in (429, 502, 503, 529):
-                    self._registry.report_failure(model, f"http_{exc.status_code}")
+                # 402 = provider billing limit (e.g. Venice) — skip model ini, coba berikutnya
+                # 429 = rate limit, 502/503/529 = server error sementara
+                if exc.status_code in (402, 429, 502, 503, 529):
+                    reason = (
+                        "provider_payment_limit" if exc.status_code == 402
+                        else f"http_{exc.status_code}"
+                    )
+                    self._registry.report_failure(model, reason)
                     last_exc = exc
                     logger.warning(
-                        "Brain: error %d pada %s — mencoba model lain",
-                        exc.status_code, model,
+                        "Brain: error %d pada %s (%s) — mencoba model lain",
+                        exc.status_code, model, reason,
                     )
                 else:
                     logger.error("Brain: error tidak di-retry (%d): %s", exc.status_code, exc)

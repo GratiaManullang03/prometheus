@@ -35,34 +35,46 @@ class ModelTaskType(str, Enum):
 
 # Katalog model per task type — urutan = prioritas
 # Semua model menggunakan tier :free dari OpenRouter
+# Catatan provider:
+# - Venice (mistral-small) → bisa 402 jika spending limit provider tercapai
+# - Arcee AI (trinity-large-preview, trinity-mini) → confirmed free, tidak via Venice
+# - Google (gemma) → reliable free tier
+# - Meta (llama) → free tapi rate limit ketat
+# Urutan = prioritas: model paling reliable & capable di atas
+
 _CATALOG: dict[ModelTaskType, list[str]] = {
     ModelTaskType.REASONING: [
+        "arcee-ai/trinity-large-preview:free",       # confirmed working
         "nousresearch/hermes-3-llama-3.1-405b:free",
         "meta-llama/llama-3.3-70b-instruct:free",
         "qwen/qwen3-next-80b-a3b-instruct:free",
-        "mistralai/mistral-small-3.1-24b-instruct:free",
         "google/gemma-3-27b-it:free",
         "google/gemma-3-12b-it:free",
+        "arcee-ai/trinity-mini:free",
+        "mistralai/mistral-small-3.1-24b-instruct:free",  # via Venice, 402 mungkin
     ],
     ModelTaskType.CODING: [
         "qwen/qwen3-coder:free",
+        "arcee-ai/trinity-large-preview:free",
         "meta-llama/llama-3.3-70b-instruct:free",
         "openai/gpt-oss-20b:free",
-        "mistralai/mistral-small-3.1-24b-instruct:free",
         "google/gemma-3-12b-it:free",
+        "mistralai/mistral-small-3.1-24b-instruct:free",
     ],
     ModelTaskType.RESEARCH: [
-        "mistralai/mistral-small-3.1-24b-instruct:free",
+        "arcee-ai/trinity-large-preview:free",
         "google/gemma-3-12b-it:free",
+        "google/gemma-3-4b-it:free",
         "qwen/qwen3-4b:free",
         "meta-llama/llama-3.2-3b-instruct:free",
-        "google/gemma-3-4b-it:free",
+        "mistralai/mistral-small-3.1-24b-instruct:free",
     ],
     ModelTaskType.FAST: [
-        "mistralai/mistral-small-3.1-24b-instruct:free",
-        "qwen/qwen3-4b:free",
+        "arcee-ai/trinity-mini:free",
         "google/gemma-3-4b-it:free",
+        "qwen/qwen3-4b:free",
         "meta-llama/llama-3.2-3b-instruct:free",
+        "mistralai/mistral-small-3.1-24b-instruct:free",
     ],
 }
 
