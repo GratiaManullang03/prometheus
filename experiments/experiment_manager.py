@@ -148,6 +148,11 @@ class ExperimentManager:
     def _start(self, exp: Experiment) -> None:
         exp.state = ExperimentState.RUNNING
         exp.started_at = datetime.now(timezone.utc).isoformat()
+        # Pastikan selalu mulai dari main — proses sebelumnya mungkin mati di branch lain
+        current = self._git.status().branch
+        if current not in ("main", "master"):
+            logger.warning("Experiment %s: not on main (was on %s) — checking out main first", exp.experiment_id, current)
+            self._git.checkout("main")
         status = self._git.status()
         parts = status.last_commit.split()
         exp.rollback_commit = parts[0] if parts else None
