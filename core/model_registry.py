@@ -43,38 +43,42 @@ class ModelTaskType(str, Enum):
 # Urutan = prioritas: model paling reliable & capable di atas
 
 _CATALOG: dict[ModelTaskType, list[str]] = {
+    # STRATEGI BERDASARKAN GOOGLE AI STUDIO FREE TIER RATE LIMITS:
+    #
+    # Gemini 2.5 Flash       : 5 RPM,  250K TPM,  20 RPD  ← terbaik, hemat
+    # Gemini 2.5 Flash Lite  : 10 RPM, 250K TPM,  20 RPD  ← fallback reasoning
+    # gemini-1.5-flash-8b    : 15 RPM, 250K TPM, 500 RPD  ← middle ground
+    # Gemma 3 27B            : 30 RPM,  15K TPM, 14.4K RPD ← coding utama
+    # Gemma 3 12B            : 30 RPM,  15K TPM, 14.4K RPD ← research
+    # Gemma 3 4B             : 30 RPM,  15K TPM, 14.4K RPD ← fast tasks
+    #
+    # Registry otomatis rotasi ke fallback saat model habis RPD.
+    # Gemini 2.5 Flash dipakai 20 cycle pertama per hari (paling cerdas).
+    # Setelahnya Prometheus tetap jalan dengan Gemma 3 (14.4K RPD = tak terbatas efektif).
+
     ModelTaskType.REASONING: [
-        "arcee-ai/trinity-large-preview:free",       # confirmed working
-        "nousresearch/hermes-3-llama-3.1-405b:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "qwen/qwen3-next-80b-a3b-instruct:free",
-        "google/gemma-3-27b-it:free",
-        "google/gemma-3-12b-it:free",
-        "arcee-ai/trinity-mini:free",
-        "mistralai/mistral-small-3.1-24b-instruct:free",  # via Venice, 402 mungkin
+        "gemini-2.5-flash",                    # 20 RPD — dipakai untuk cycle paling penting
+        "gemini-2.5-flash-lite-preview-06-17", # 20 RPD — fallback reasoning
+        "gemini-1.5-flash-8b",                 # 500 RPD — fallback setelah Gemini 2.5 habis
+        "gemma-3-27b-it",                      # 14.4K RPD — last resort, tetap capable
     ],
     ModelTaskType.CODING: [
-        "qwen/qwen3-coder:free",
-        "arcee-ai/trinity-large-preview:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "openai/gpt-oss-20b:free",
-        "google/gemma-3-12b-it:free",
-        "mistralai/mistral-small-3.1-24b-instruct:free",
+        "gemma-3-27b-it",                      # 14.4K RPD — utama, sangat capable untuk code
+        "gemini-1.5-flash-8b",                 # 500 RPD — fallback jika Gemma overloaded
+        "gemini-2.5-flash",                    # gunakan budget 2.5 untuk coding kritis
+        "gemma-3-12b-it",                      # fallback ringan
     ],
     ModelTaskType.RESEARCH: [
-        "arcee-ai/trinity-large-preview:free",
-        "google/gemma-3-12b-it:free",
-        "google/gemma-3-4b-it:free",
-        "qwen/qwen3-4b:free",
-        "meta-llama/llama-3.2-3b-instruct:free",
-        "mistralai/mistral-small-3.1-24b-instruct:free",
+        "gemma-3-12b-it",                      # 14.4K RPD — cukup untuk summarize web
+        "gemma-3-27b-it",                      # upgrade untuk analisis kompleks
+        "gemini-1.5-flash-8b",                 # 500 RPD fallback
+        "gemma-3-4b-it",                       # paling ringan
     ],
     ModelTaskType.FAST: [
-        "arcee-ai/trinity-mini:free",
-        "google/gemma-3-4b-it:free",
-        "qwen/qwen3-4b:free",
-        "meta-llama/llama-3.2-3b-instruct:free",
-        "mistralai/mistral-small-3.1-24b-instruct:free",
+        "gemma-3-4b-it",                       # 14.4K RPD — paling cepat, untuk Telegram chat
+        "gemma-3-12b-it",
+        "gemini-1.5-flash-8b",
+        "gemma-3-27b-it",
     ],
 }
 
