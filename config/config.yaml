@@ -1,14 +1,14 @@
 agent:
   name: "prometheus"
   version: "0.1.0"
-  loop_interval_seconds: 900  # 15 menit — sesuai limit harian Google AI Studio free tier
+  loop_interval_seconds: 14400  # 4 jam — 6 cycle/hari × 3 calls = 18 RPD (aman di bawah limit 20)
   max_experiments_per_cycle: 3
   log_level: "INFO"
 
 llm:
   provider: "google"
   base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
-  model: "gemini-2.0-flash"
+  model: "gemini-2.5-flash"
   max_tokens: 8192
   temperature: 0.3
   cache_ttl_seconds: 3600
