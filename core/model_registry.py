@@ -43,42 +43,37 @@ class ModelTaskType(str, Enum):
 # Urutan = prioritas: model paling reliable & capable di atas
 
 _CATALOG: dict[ModelTaskType, list[str]] = {
-    # STRATEGI BERDASARKAN GOOGLE AI STUDIO FREE TIER RATE LIMITS:
+    # CATATAN: Google AI Studio OpenAI-compatible endpoint hanya support model Gemini.
+    # Gemma models TIDAK bisa diakses via endpoint ini — hanya via native Google AI SDK.
     #
-    # Gemini 2.5 Flash       : 5 RPM,  250K TPM,  20 RPD  ← terbaik, hemat
-    # Gemini 2.5 Flash Lite  : 10 RPM, 250K TPM,  20 RPD  ← fallback reasoning
-    # gemini-1.5-flash-8b    : 15 RPM, 250K TPM, 500 RPD  ← middle ground
-    # Gemma 3 27B            : 30 RPM,  15K TPM, 14.4K RPD ← coding utama
-    # Gemma 3 12B            : 30 RPM,  15K TPM, 14.4K RPD ← research
-    # Gemma 3 4B             : 30 RPM,  15K TPM, 14.4K RPD ← fast tasks
-    #
-    # Registry otomatis rotasi ke fallback saat model habis RPD.
-    # Gemini 2.5 Flash dipakai 20 cycle pertama per hari (paling cerdas).
-    # Setelahnya Prometheus tetap jalan dengan Gemma 3 (14.4K RPD = tak terbatas efektif).
+    # Rate limits free tier:
+    # gemini-2.5-flash              : 5 RPM,  250K TPM,  20 RPD
+    # gemini-2.5-flash-lite-*       : 10 RPM, 250K TPM,  20 RPD
+    # gemini-1.5-flash           : 15 RPM, 250K TPM, 500 RPD  ← workhorse utama
+    # gemini-2.0-flash              : RPD tinggi (tidak terlihat di dashboard = belum dipakai)
+    # gemini-2.0-flash-lite         : RPD tinggi, paling ringan
 
     ModelTaskType.REASONING: [
-        "gemini-2.5-flash",                    # 20 RPD — dipakai untuk cycle paling penting
-        "gemini-2.5-flash-lite-preview-06-17", # 20 RPD — fallback reasoning
-        "gemini-1.5-flash-8b",                 # 500 RPD — fallback setelah Gemini 2.5 habis
-        "gemma-3-27b-it",                      # 14.4K RPD — last resort, tetap capable
+        "gemini-2.5-flash",                    # terbaik untuk JSON reasoning — 20 RPD
+        "gemini-2.5-flash-lite-preview-06-17", # fallback reasoning — 20 RPD
+        "gemini-2.0-flash",                    # fallback dengan RPD lebih besar
+        "gemini-1.5-flash",                 # 500 RPD — sustain sepanjang hari
     ],
     ModelTaskType.CODING: [
-        "gemma-3-27b-it",                      # 14.4K RPD — utama, sangat capable untuk code
-        "gemini-1.5-flash-8b",                 # 500 RPD — fallback jika Gemma overloaded
-        "gemini-2.5-flash",                    # gunakan budget 2.5 untuk coding kritis
-        "gemma-3-12b-it",                      # fallback ringan
+        "gemini-2.0-flash",                    # RPD besar, bagus untuk code generation
+        "gemini-1.5-flash",                 # 500 RPD — utama jika 2.0 limit
+        "gemini-2.5-flash",                    # paling presisi tapi hemat RPD
+        "gemini-2.0-flash-lite",               # last resort
     ],
     ModelTaskType.RESEARCH: [
-        "gemma-3-12b-it",                      # 14.4K RPD — cukup untuk summarize web
-        "gemma-3-27b-it",                      # upgrade untuk analisis kompleks
-        "gemini-1.5-flash-8b",                 # 500 RPD fallback
-        "gemma-3-4b-it",                       # paling ringan
+        "gemini-2.0-flash-lite",               # ringan, cukup untuk summarize
+        "gemini-1.5-flash",                 # 500 RPD
+        "gemini-2.0-flash",                    # upgrade jika perlu
     ],
     ModelTaskType.FAST: [
-        "gemma-3-4b-it",                       # 14.4K RPD — paling cepat, untuk Telegram chat
-        "gemma-3-12b-it",
-        "gemini-1.5-flash-8b",
-        "gemma-3-27b-it",
+        "gemini-2.0-flash-lite",               # paling cepat & ringan untuk Telegram chat
+        "gemini-1.5-flash",                 # 500 RPD fallback
+        "gemini-2.0-flash",                    # fallback
     ],
 }
 

@@ -324,19 +324,24 @@ class Brain:
 
             except AuthenticationError:
                 raise SystemExit(
-                    "\n[PROMETHEUS] OPENROUTER_API_KEY tidak valid atau kosong.\n"
-                    "Pastikan .env berisi key yang benar dari https://openrouter.ai/keys\n"
-                    "Contoh: OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxx\n"
+                    "\n[PROMETHEUS] API key tidak valid atau kosong.\n"
+                    "Pastikan .env berisi GOOGLE_AI_STUDIO_API_KEY yang benar.\n"
+                    "Dapatkan key di: https://aistudio.google.com/apikey\n"
                 )
 
             except APIStatusError as exc:
-                # 402 = provider billing limit (e.g. Venice) — skip model ini, coba berikutnya
-                # 429 = rate limit, 502/503/529 = server error sementara
-                if exc.status_code in (402, 429, 502, 503, 529):
-                    reason = (
-                        "provider_payment_limit" if exc.status_code == 402
-                        else f"http_{exc.status_code}"
-                    )
+                # 404 = model ID tidak valid — skip permanen, coba model berikutnya
+                # 400 = bad request (e.g. model tidak support system prompt) — skip
+                # 402 = provider billing limit — skip
+                # 429 = rate limit — cooldown lalu retry
+                # 502/503/529 = server error sementara — retry
+                if exc.status_code in (400, 402, 404, 429, 502, 503, 529):
+                    reason = {
+                        400: "bad_request_400",
+                        402: "provider_payment_limit",
+                        404: "model_not_found_404",
+                        429: "rate_limit_429",
+                    }.get(exc.status_code, f"http_{exc.status_code}")
                     self._registry.report_failure(model, reason)
                     last_exc = exc
                     logger.warning(

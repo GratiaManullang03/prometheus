@@ -7,6 +7,7 @@ results in a machine-readable JSON format to stdout.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -31,6 +32,16 @@ def run_tests(test_dir: str = "tests") -> dict:
             "duration_seconds": 0.0,
         }
 
+    # Explicitly set PYTHONPATH to include /workspace
+    # This ensures that Python can correctly locate and import all necessary modules
+    # from the project root during test execution.
+    env = os.environ.copy()
+    current_pythonpath = env.get("PYTHONPATH", "")
+    if current_pythonpath:
+        env["PYTHONPATH"] = f"/workspace:{current_pythonpath}"
+    else:
+        env["PYTHONPATH"] = "/workspace"
+
     start = time.time()
     result = subprocess.run(
         [
@@ -43,6 +54,7 @@ def run_tests(test_dir: str = "tests") -> dict:
         capture_output=True,
         text=True,
         timeout=240,
+        env=env,  # Pass the modified environment
     )
     duration = time.time() - start
 
