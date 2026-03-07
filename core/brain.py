@@ -55,8 +55,20 @@ CODEBASE STRUCTURE (workspace root = /workspace in Docker):
 
 IMPORT CONVENTION (all imports relative to project root):
   from core.brain import Brain
+  from core.planner import Planner
   from tools.browser_agent import BrowserAgent
+  from tools.file_editor import FileEditor
+  from tools.git_manager import GitManager
   from memory.memory_manager import MemoryManager, MemoryCategory
+  from experiments.experiment_manager import ExperimentManager
+  from communication.telegram_bot import TelegramBot
+
+CRITICAL IMPORT RULES — failure to follow causes ModuleNotFoundError:
+  - memory/ module  → ALWAYS: from memory.memory_manager import ...   (NOT from core.memory_manager)
+  - core/ module    → ALWAYS: from core.brain import ...              (NOT from brain import)
+  - tools/ module   → ALWAYS: from tools.file_editor import ...       (NOT from file_editor import)
+  - experiments/    → ALWAYS: from experiments.experiment_manager import ...
+  - communication/  → ALWAYS: from communication.telegram_bot import ...
 
 GOAL DIRECTION:
   Phase 1 (current): Make the self-improvement loop reliable and effective.

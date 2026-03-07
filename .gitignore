@@ -43,6 +43,12 @@ logs/*.log
 logs/*.log.*
 logs/prompt.md
 logs/*.txt
+logs/*.png
+
+# Memory database — runtime SQLite, jangan di-track git
+memory/knowledge_base.db
+memory/knowledge_base.db-wal
+memory/knowledge_base.db-shm
 
 # knowledge/ — always commit (static reference docs for the system)
 # knowledge/.gitkeep, knowledge/*.md — tracked
