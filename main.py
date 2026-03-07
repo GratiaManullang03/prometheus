@@ -201,7 +201,10 @@ def main() -> None:
         file_editor=file_editor,
         registry=registry,
         loop_interval=agent_cfg["loop_interval_seconds"],
-        goal=args.goal or "Improve agent performance, reliability, and capabilities.",
+        goal=args.goal or (
+            "Improve Prometheus's own codebase — make the self-improvement loop more reliable, "
+            "fix recurring failures, and add capabilities toward Phase 2 economic agency."
+        ),
         default_branch=default_branch,
     )
 

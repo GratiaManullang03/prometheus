@@ -29,9 +29,9 @@ docker:
   workspace_mount: "/workspace"
 
 git:
-  workspace_path: "./workspace/source_code"
+  workspace_path: "."
   versions_path: "./workspace/versions"
-  default_branch: "master"
+  default_branch: "main"
   experimental_branch_prefix: "experiment"
 
 memory:
