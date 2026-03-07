@@ -140,7 +140,9 @@ class TelegramBot:
 
     def _get_updates(self) -> list[dict]:
         """Fetch new updates via long-poll."""
-        params = {
+        # POST + JSON body agar allowed_updates dikirim sebagai array JSON
+        # (GET dengan repeated params tidak di-parse Telegram sebagai array)
+        payload = {
             "offset": self._last_update_id + 1,
             "timeout": _POLL_TIMEOUT,
             "allowed_updates": ["callback_query", "message"],
@@ -148,7 +150,7 @@ class TelegramBot:
         url = _BASE_URL.format(token=self._token, method="getUpdates")
         try:
             with httpx.Client(timeout=_POLL_TIMEOUT + 5) as client:
-                resp = client.get(url, params=params)
+                resp = client.post(url, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
                 updates = data.get("result", [])
