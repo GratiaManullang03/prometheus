@@ -2,7 +2,7 @@
 
 > **An autonomous economic agent that improves itself, earns money, replicates, and never sleeps.**
 
-Prometheus is not a task runner or chatbot framework. It is a self-directed agent with a long-term mission across four phases — currently executing Phase 1 (self-improvement). Every hour, it analyzes its own weaknesses, generates code to fix them, tests the fix inside an isolated Docker container, and commits the result. The operator is notified via Telegram and approves high-risk changes with a button click.
+Prometheus is not a task runner or chatbot framework. It is a self-directed agent with a long-term mission across four phases currently executing Phase 1 (self-improvement). Every hour, it analyzes its own weaknesses, generates code to fix them, tests the fix inside an isolated Docker container, and commits the result. The operator is notified via Telegram and approves high-risk changes with a button click.
 
 ---
 
@@ -10,10 +10,10 @@ Prometheus is not a task runner or chatbot framework. It is a self-directed agen
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| **1 — Self-Improvement** | Continuously improve own codebase through safe, tested cycles | **Active** |
-| **2 — Economic Agency** | Earn money autonomously via freelance markets, APIs, digital services | Planned |
-| **3 — Self-Replication** | Clone itself to new VPS instances without human intervention | Planned |
-| **4 — Collective Intelligence** | Multiple Prometheus instances sharing knowledge and specializing | Planned |
+| **1 Self-Improvement** | Continuously improve own codebase through safe, tested cycles | **Active** |
+| **2 Economic Agency** | Earn money autonomously via freelance markets, APIs, digital services | Planned |
+| **3 Self-Replication** | Clone itself to new VPS instances without human intervention | Planned |
+| **4 Collective Intelligence** | Multiple Prometheus instances sharing knowledge and specializing | Planned |
 
 ---
 
@@ -60,11 +60,11 @@ Prometheus is not a task runner or chatbot framework. It is a self-directed agen
 | `ModelRegistry` | `core/model_registry.py` | Per-task model selection (REASONING / CODING / RESEARCH / FAST) with health tracking, cooldown, and auto-fallback |
 | `Planner` | `core/planner.py` | Converts ImprovementPlan to ordered ExecutionPlan with typed Tasks |
 | `AgentLoop` | `core/agent_loop.py` | Main cycle orchestrator; task dispatch; plugin registration; auto-apply low-risk patches |
-| `AgentContext` | `core/context.py` | Dataclass passed to external tool plugins — contains all agent resources |
+| `AgentContext` | `core/context.py` | Dataclass passed to external tool plugins contains all agent resources |
 | `ExperimentManager` | `experiments/experiment_manager.py` | Git branch → Docker test → evaluate → rollback on fail → persist to memory |
 | `DockerRunner` | `tools/docker_runner.py` | Isolated experiment containers (`--network none`, `--read-only`, `--cap-drop ALL`) |
 | `GitManager` | `tools/git_manager.py` | Workspace git ops; experiment branches; rollback; stable version tagging |
-| `MemoryManager` | `memory/memory_manager.py` | SQLite + FTS5 persistent store; WAL mode for multi-instance; never deletes — archives at threshold |
+| `MemoryManager` | `memory/memory_manager.py` | SQLite + FTS5 persistent store; WAL mode for multi-instance; never deletes archives at threshold |
 | `HumanApprovalGate` | `communication/human_approval.py` | Blocking Telegram approval gate (`threading.Event`, 24h timeout) |
 | `TelegramBot` | `communication/telegram_bot.py` | Long-polling bot; `/status`, `/help`, free-form chat, inline approval buttons |
 | `BrowserAgent` | `tools/browser_agent.py` | DDG search via Playwright (headless Chromium) + httpx fallback; SSRF-safe |
@@ -130,7 +130,7 @@ Pre-registered Phase 2/3 TaskTypes: `WEB_INTERACT`, `EARN_MONEY`, `PROVISION_INF
 
 ## LLM Configuration
 
-**Primary**: Google AI Studio — `gemini-2.5-flash` (5 RPM, 20 RPD free tier)
+**Primary**: Google AI Studio `gemini-2.5-flash` (5 RPM, 20 RPD free tier)
 
 **Fallback** (auto-rotated on 2× rate limit from primary):
 
@@ -185,13 +185,13 @@ workspace/source_code/ → tempdir copy
 
 ## Security Model
 
-- **Experiments never have network access** — `--network none` is non-negotiable
-- **Containers are read-only** — tmpfs at `/tmp` only
-- **No root in containers** — dedicated `agent` user in Dockerfile
-- **Path traversal blocked** — `FileEditor` and `DockerRunner` both validate paths
-- **Git subprocess isolation** — only safe env vars passed (PATH, HOME, LANG)
-- **Operator authorization** — Telegram messages from other users are silently dropped
-- **No secrets in code** — all keys via `.env` + `${VAR}` expansion in config
+- **Experiments never have network access** `--network none` is non-negotiable
+- **Containers are read-only** tmpfs at `/tmp` only
+- **No root in containers** dedicated `agent` user in Dockerfile
+- **Path traversal blocked** `FileEditor` and `DockerRunner` both validate paths
+- **Git subprocess isolation** only safe env vars passed (PATH, HOME, LANG)
+- **Operator authorization** Telegram messages from other users are silently dropped
+- **No secrets in code** all keys via `.env` + `${VAR}` expansion in config
 
 ---
 
@@ -228,12 +228,12 @@ The agent **can never**:
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Install Playwright browser (optional — httpx fallback works without it)
+# Install Playwright browser (optional httpx fallback works without it)
 playwright install chromium
 
 # Configure secrets
 cp .env.example .env
-# Edit .env — fill in required keys
+# Edit .env fill in required keys
 ```
 
 ### Environment Variables (`.env`)
@@ -244,7 +244,7 @@ GOOGLE_AI_STUDIO_API_KEY=AIza...
 TELEGRAM_BOT_TOKEN=123456:ABC...
 TELEGRAM_CHAT_ID=987654321
 
-# Optional — fallback LLM when Google hits rate limits
+# Optional fallback LLM when Google hits rate limits
 OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
@@ -310,7 +310,7 @@ python -m pytest tests/ -v
 
 ```
 prometheus/
-├── main.py                          # Entry point — wires all components
+├── main.py                          # Entry point wires all components
 ├── config/
 │   └── config.yaml                  # Full agent configuration
 ├── core/
@@ -349,7 +349,7 @@ prometheus/
 
 ## Roadmap
 
-### Phase 1 — Foundation (Active)
+### Phase 1 Foundation (Active)
 - [x] Self-improvement loop (observe → reason → plan → test → commit)
 - [x] SQLite + FTS5 memory (upgraded from JSON flat file)
 - [x] Plugin tool system (`register_tool()`, `AgentContext`)
@@ -359,28 +359,28 @@ prometheus/
 - [x] Docker experiment isolation
 - [x] Git versioning + stable tags
 
-### Phase 2 — Economic Agency (Next)
-- [ ] `tools/economic/` — wallet, payment tracking, daily spending cap
-- [ ] `tools/marketplace/` — Upwork / Fiverr / RapidAPI integrations
+### Phase 2 Economic Agency (Next)
+- [ ] `tools/economic/` wallet, payment tracking, daily spending cap
+- [ ] `tools/marketplace/` Upwork / Fiverr / RapidAPI integrations
 - [ ] Revenue tracking in memory
 - [ ] Immutable rule: spending limit enforcement + approval threshold
 
-### Phase 3 — Self-Replication
-- [ ] `tools/infrastructure/` — VPS provisioning (DigitalOcean/Hetzner API)
-- [ ] Instance registry — master tracks all workers
+### Phase 3 Self-Replication
+- [ ] `tools/infrastructure/` VPS provisioning (DigitalOcean/Hetzner API)
+- [ ] Instance registry master tracks all workers
 - [ ] Shared memory via SQLite over network or embedded DB server
 - [ ] Immutable rule: cannot spawn instance without human approval
 
-### Phase 4 — Collective Intelligence
+### Phase 4 Collective Intelligence
 - [ ] Knowledge aggregation protocol between instances
 - [ ] Specialization (coding instance, research instance, monetization instance)
-- [ ] Hierarchical control — master Prometheus oversees workers
+- [ ] Hierarchical control master Prometheus oversees workers
 - [ ] Upgrade propagation across all instances
 
 ---
 
 ## Philosophy
 
-Prometheus is designed as a **digital employee that never sleeps and never stops learning**. It is not configured for specific tasks — it decides what to improve next based on its own failure history, the state of its workspace, and a high-level goal set by the operator. The operator's role is to approve or reject risky proposals, not to direct every action.
+Prometheus is designed as a **digital employee that never sleeps and never stops learning**. It is not configured for specific tasks it decides what to improve next based on its own failure history, the state of its workspace, and a high-level goal set by the operator. The operator's role is to approve or reject risky proposals, not to direct every action.
 
 All memory is permanent. Failures are learning data, not garbage to discard. The agent compounds knowledge across every cycle.
