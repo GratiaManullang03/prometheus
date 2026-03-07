@@ -8,6 +8,8 @@ services:
     env_file:
       - .env
     volumes:
+      # Source code — agent self-improvement commits persist to host
+      - .:/app
       # Workspace — agent reads/writes code here
       - ./workspace:/app/workspace
       # Memory — persists across restarts
@@ -20,6 +22,7 @@ services:
       - AGENT_WORKSPACE=/app/workspace/source_code
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
+    user: "1000:125"  # graxya uid:docker gid — needed to write to mounted source code
     working_dir: /app
     # SECURITY NOTE: Docker socket gives container equivalent power to host root.
     # In production, replace with a scoped socket proxy (e.g. tecnativa/docker-socket-proxy)

@@ -40,4 +40,7 @@ RUN groupadd -f docker \
 
 USER agent
 
+# Allow agent to use the mounted host git repo
+RUN git config --global --add safe.directory /app
+
 ENTRYPOINT ["python", "main.py"]
