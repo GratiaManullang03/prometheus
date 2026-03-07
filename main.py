@@ -148,13 +148,15 @@ def build_components(cfg: dict) -> tuple:
     return brain, planner, experiments, gate, memory, git, browser, bot, file_editor, registry, git_cfg["default_branch"]
 
 
-def _make_chat_handler(brain, memory: MemoryManager):
+def _make_chat_handler(brain, memory: MemoryManager, status_provider=None):
     """Build a chat handler closure that answers operator questions using memory context."""
     def handler(text: str) -> str:
         failures = memory.retrieve(MemoryCategory.PAST_FAILURES, limit=3)
         successes = memory.retrieve(MemoryCategory.SUCCESSFUL_IMPROVEMENTS, limit=3)
         decisions = memory.retrieve(MemoryCategory.ARCHITECTURE_DECISIONS, limit=5)
+        current_status = status_provider() if status_provider else "status tidak tersedia"
         context = json.dumps({
+            "current_status": current_status,
             "recent_failures": [
                 {k: v for k, v in f.get("content", f).items()
                  if k in ("description", "error", "state", "plan_id")}
@@ -168,7 +170,7 @@ def _make_chat_handler(brain, memory: MemoryManager):
             "architecture_decisions": [
                 d.get("content", d) for d in decisions
             ],
-        }, indent=2, ensure_ascii=False)[:2000]
+        }, indent=2, ensure_ascii=False)[:2500]
         return brain.chat(text, context)
     return handler
 
@@ -212,7 +214,7 @@ def main() -> None:
         default_branch=default_branch,
     )
 
-    bot.set_chat_handler(_make_chat_handler(brain, memory))
+    bot.set_chat_handler(_make_chat_handler(brain, memory, status_provider=loop.get_status))
 
     bot.set_status_provider(loop.get_status)
 
