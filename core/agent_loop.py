@@ -316,6 +316,15 @@ class AgentLoop:
         )
         if docker_passed:
             self._auto_apply_patches(patches, plan.plan_id)
+            return
+        # Commit new files immediately — they don't affect existing code
+        new_file_patches = {
+            path: content for path, content in patches.items()
+            if not (self._file_editor._root / path).exists()
+        }
+        if new_file_patches and len(new_file_patches) == len(patches):
+            logger.info("AgentLoop: committing %d new files (no Docker test needed)", len(new_file_patches))
+            self._auto_apply_patches(new_file_patches, plan.plan_id)
 
     def _auto_apply_patches(self, patches: dict[str, str], plan_id: str) -> None:
         """Write low-risk patches to workspace and commit."""
