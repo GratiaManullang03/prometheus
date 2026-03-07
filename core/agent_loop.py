@@ -394,9 +394,10 @@ class AgentLoop:
             logger.info("AgentLoop: %s belum ada — akan dibuat baru", target)
 
         # Tolak modifikasi file yang terlalu besar — Brain tidak bisa regenerate dengan benar
-        if current and len(current.splitlines()) > 200:
+        _MAX_FILE_LINES = 300
+        if current and len(current.splitlines()) > _MAX_FILE_LINES:
             raise RuntimeError(
-                f"File {target} memiliki {len(current.splitlines())} baris (>200) — "
+                f"File {target} memiliki {len(current.splitlines())} baris (>{_MAX_FILE_LINES}) — "
                 "terlalu besar untuk di-regenerate. Buat helper module terpisah."
             )
 
