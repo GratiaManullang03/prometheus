@@ -31,9 +31,44 @@
         "summary": "Research for 'Implement comprehensive unit tests and add type hints to all modules to improve code reliability and maintainability':\n\n[0 pages fetched]"
       },
       "created_at": "2026-03-06T16:51:55.591840+00:00"
+    },
+    {
+      "id": "29a2a1a7-3c53-4b25-8aed-e8eee1d38007",
+      "category": "tool_documentation",
+      "content": {
+        "query": "Create a minimal requirements.txt with essential dependencies (pytest, coverage) and implement basic test cases for the existing analyzer modules.",
+        "summary": "Research for 'Create a minimal requirements.txt with essential dependencies (pytest, coverage) and implement basic test cases for the existing analyzer modules.':\n\n[0 pages fetched]"
+      },
+      "created_at": "2026-03-06T17:15:46.640973+00:00"
     }
   ],
-  "past_failures": [],
+  "past_failures": [
+    {
+      "id": "de0b89ec-e412-4e91-937e-26d492e96e99",
+      "category": "past_failures",
+      "content": {
+        "experiment_id": "c56a2fb8-e01",
+        "plan_id": "6409f75f-6a9",
+        "branch_name": "experiment/c56a2fb8-e01",
+        "description": "Missing dependencies and incomplete test coverage",
+        "state": "rolled_back",
+        "result": {
+          "experiment_id": "c56a2fb8-e01",
+          "image_tag": "prometheus-exp-c56a2fb8-e01",
+          "exit_code": 2,
+          "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.12.12, pytest-9.0.2, pluggy-1.6.0 -- /usr/local/bin/python\ncachedir: .pytest_cache\nrootdir: /workspace\ncollecting ... collected 13 items / 2 errors\n\n==================================== ERRORS ====================================\n___________________ ERROR collecting tests/test_formatter.py ___________________\nImportError while importing test module '/workspace/tests/test_formatter.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n/usr/local/lib/python3.12/importlib/__init__.py:90: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests/test_formatter.py:2: in <module>\n    from formatter import format_code\nE   ModuleNotFoundError: No module named 'formatter'\n_____________________ ERROR collecting tests/test_stats.py _____________________\nImportError while importing test module '/workspace/tests/test_stats.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n/usr/local/lib/python3.12/importlib/__init__.py:90: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests/test_stats.py:2: in <module>\n    from stats import calculate_mean, calculate_median, calculate_mode\nE   ModuleNotFoundError: No module named 'stats'\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475\n  /usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /workspace/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/workspace/pytest-cache-files-fm11n953'\n    config.cache.set(\"cache/nodeids\", sorted(self.cached_nodeids))\n\n../usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:429\n  /usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:429: PytestCacheWarning: could not create cache path /workspace/.pytest_cache/v/cache/lastfailed: [Errno 30] Read-only file system: '/workspace/pytest-cache-files-9k5618hl'\n    config.cache.set(\"cache/lastfailed\", self.lastfailed)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nERROR tests/test_formatter.py\nERROR tests/test_stats.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!!!\n======================== 2 warnings, 2 errors in 0.08s =========================\n",
+          "stderr": "",
+          "success": false,
+          "error": null,
+          "logs_path": "logs/experiment_c56a2fb8-e01.log"
+        },
+        "started_at": "2026-03-06T17:18:04.144360+00:00",
+        "finished_at": "2026-03-06T17:18:13.220595+00:00",
+        "error": "unknown error"
+      },
+      "created_at": "2026-03-06T17:18:13.228329+00:00"
+    }
+  ],
   "successful_improvements": [
     {
       "id": "a225dfd1-701d-43f2-9a9c-a44cd5b32b2f",
