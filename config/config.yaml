@@ -14,6 +14,11 @@ llm:
   cache_ttl_seconds: 3600
   model_cooldown_seconds: 60    # Google free tier recover lebih cepat dari OpenRouter
   api_key: "${GOOGLE_AI_STUDIO_API_KEY}"
+  # Fallback otomatis ke OpenRouter jika Google AI Studio kena 429 (RPD habis)
+  fallback:
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: "${OPENROUTER_API_KEY}"
+    model: "google/gemini-2.0-flash-exp:free"  # free tier OpenRouter
 
 telegram:
   bot_token: "${TELEGRAM_BOT_TOKEN}"

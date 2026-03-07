@@ -90,6 +90,7 @@ def build_components(cfg: dict) -> tuple:
         default_model=llm_cfg["model"],
         cooldown_seconds=llm_cfg.get("model_cooldown_seconds", 300),
     )
+    fallback_cfg = llm_cfg.get("fallback", {})
     brain = Brain(
         registry=registry,
         max_tokens=llm_cfg["max_tokens"],
@@ -97,6 +98,9 @@ def build_components(cfg: dict) -> tuple:
         cache_ttl=llm_cfg["cache_ttl_seconds"],
         base_url=llm_cfg["base_url"],
         api_key=llm_cfg["api_key"],
+        fallback_base_url=fallback_cfg.get("base_url"),
+        fallback_api_key=fallback_cfg.get("api_key"),
+        fallback_model=fallback_cfg.get("model"),
     )
 
     planner = Planner()

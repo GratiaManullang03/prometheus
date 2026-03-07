@@ -175,15 +175,18 @@ class ReasoningCache:
 
 
 class Brain:
-    """LLM reasoning engine dengan auto model-switching via OpenRouter.
+    """LLM reasoning engine dengan auto model-switching dan provider fallback.
 
     Args:
         registry: ModelRegistry untuk pemilihan dan health tracking model.
         max_tokens: Max token per response.
         temperature: Sampling temperature.
         cache_ttl: TTL cache reasoning dalam detik.
-        base_url: OpenRouter API base URL.
-        api_key: OpenRouter API key.
+        base_url: Primary provider API base URL.
+        api_key: Primary provider API key.
+        fallback_base_url: Fallback provider URL (OpenRouter).
+        fallback_api_key: Fallback provider API key.
+        fallback_model: Model ID di fallback provider.
     """
 
     def __init__(
@@ -194,12 +197,25 @@ class Brain:
         cache_ttl: int,
         base_url: str = "https://openrouter.ai/api/v1",
         api_key: Optional[str] = None,
+        fallback_base_url: Optional[str] = None,
+        fallback_api_key: Optional[str] = None,
+        fallback_model: Optional[str] = None,
     ) -> None:
         self._client = OpenAI(
             base_url=base_url,
-            api_key=api_key or os.environ["OPENROUTER_API_KEY"],
-            max_retries=0,  # kita handle retry sendiri via model registry
+            api_key=api_key or os.environ.get("GOOGLE_AI_STUDIO_API_KEY", ""),
+            max_retries=0,
         )
+        # Fallback ke OpenRouter jika primary provider kena rate limit
+        self._fallback_client: Optional[OpenAI] = None
+        self._fallback_model = fallback_model
+        if fallback_base_url and fallback_api_key:
+            self._fallback_client = OpenAI(
+                base_url=fallback_base_url,
+                api_key=fallback_api_key,
+                max_retries=0,
+            )
+            logger.info("Brain: fallback provider dikonfigurasi (%s)", fallback_base_url)
         self._registry = registry
         self._max_tokens = max_tokens
         self._temperature = temperature
@@ -308,15 +324,36 @@ class Brain:
           3. Setelah _MAX_RETRIES → raise exception
         """
         last_exc: Optional[Exception] = None
+        primary_429_count = 0
 
         for attempt in range(_MAX_RETRIES):
-            model = self._registry.get_model(task_type)
-            logger.info(
-                "Brain: LLM call attempt %d/%d model=%s task=%s",
-                attempt + 1, _MAX_RETRIES, model, task_type.value,
+            # Backoff antar retry: 15s untuk menghormati 5 RPM limit
+            if attempt > 0:
+                logger.info("Brain: menunggu 15s sebelum retry attempt %d", attempt + 1)
+                time.sleep(15)
+
+            # Setelah 2x 429 dari primary, coba fallback provider (OpenRouter)
+            use_fallback = (
+                primary_429_count >= 2
+                and self._fallback_client is not None
+                and self._fallback_model is not None
             )
+            client = self._fallback_client if use_fallback else self._client
+            model = self._fallback_model if use_fallback else self._registry.get_model(task_type)
+
+            if use_fallback:
+                logger.info(
+                    "Brain: LLM call attempt %d/%d model=%s task=%s [FALLBACK:openrouter]",
+                    attempt + 1, _MAX_RETRIES, model, task_type.value,
+                )
+            else:
+                logger.info(
+                    "Brain: LLM call attempt %d/%d model=%s task=%s",
+                    attempt + 1, _MAX_RETRIES, model, task_type.value,
+                )
+
             try:
-                response = self._client.chat.completions.create(
+                response = client.chat.completions.create(
                     model=model,
                     max_tokens=self._max_tokens,
                     temperature=self._temperature,
@@ -326,26 +363,24 @@ class Brain:
                     ],
                 )
                 content = response.choices[0].message.content or ""
-                self._registry.report_success(model)
+                if not use_fallback:
+                    self._registry.report_success(model)
                 return content
 
             except RateLimitError as exc:
-                self._registry.report_failure(model, "rate_limit_429")
+                if not use_fallback:
+                    self._registry.report_failure(model, "rate_limit_429")
+                    primary_429_count += 1
                 last_exc = exc
                 logger.warning("Brain: rate limit pada %s — mencoba model lain", model)
 
             except AuthenticationError:
                 raise SystemExit(
-                    "\n[PROMETHEUS] OPENROUTER_API_KEY tidak valid atau kosong.\n"
-                    "Pastikan .env berisi key yang benar dari https://openrouter.ai/keys\n"
-                    "Contoh: OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxx\n"
+                    "\n[PROMETHEUS] API key tidak valid.\n"
+                    "Cek GOOGLE_AI_STUDIO_API_KEY dan OPENROUTER_API_KEY di .env\n"
                 )
 
             except APIStatusError as exc:
-                # 400 = bad request (e.g. Gemma no system prompt support)
-                # 402 = provider billing limit
-                # 404 = model not found
-                # 429 = rate limit, 502/503/529 = server error sementara
                 if exc.status_code in (400, 402, 404, 429, 502, 503, 529):
                     reason = {
                         400: "bad_request_400",
@@ -353,7 +388,10 @@ class Brain:
                         404: "model_not_found_404",
                         429: "rate_limit_429",
                     }.get(exc.status_code, f"http_{exc.status_code}")
-                    self._registry.report_failure(model, reason)
+                    if not use_fallback:
+                        self._registry.report_failure(model, reason)
+                        if exc.status_code == 429:
+                            primary_429_count += 1
                     last_exc = exc
                     logger.warning(
                         "Brain: error %d pada %s (%s) — mencoba model lain",
