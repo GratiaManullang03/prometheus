@@ -330,13 +330,17 @@ class Brain:
                 )
 
             except APIStatusError as exc:
-                # 402 = provider billing limit (e.g. Venice) — skip model ini, coba berikutnya
+                # 400 = bad request (e.g. Gemma no system prompt support)
+                # 402 = provider billing limit
+                # 404 = model not found
                 # 429 = rate limit, 502/503/529 = server error sementara
-                if exc.status_code in (402, 429, 502, 503, 529):
-                    reason = (
-                        "provider_payment_limit" if exc.status_code == 402
-                        else f"http_{exc.status_code}"
-                    )
+                if exc.status_code in (400, 402, 404, 429, 502, 503, 529):
+                    reason = {
+                        400: "bad_request_400",
+                        402: "provider_payment_limit",
+                        404: "model_not_found_404",
+                        429: "rate_limit_429",
+                    }.get(exc.status_code, f"http_{exc.status_code}")
                     self._registry.report_failure(model, reason)
                     last_exc = exc
                     logger.warning(
