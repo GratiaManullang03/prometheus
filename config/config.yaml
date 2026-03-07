@@ -1,7 +1,7 @@
 agent:
   name: "prometheus"
   version: "0.1.0"
-  loop_interval_seconds: 14400  # 4 jam — 6 cycle/hari × 3 calls = 18 RPD (aman di bawah limit 20)
+  loop_interval_seconds: 3600   # 1 jam — fallback OpenRouter kini multi-model, tidak tergantung Google RPD
   max_experiments_per_cycle: 3
   log_level: "INFO"
 
@@ -15,10 +15,15 @@ llm:
   model_cooldown_seconds: 60    # Google free tier recover lebih cepat dari OpenRouter
   api_key: "${GOOGLE_AI_STUDIO_API_KEY}"
   # Fallback otomatis ke OpenRouter jika Google AI Studio kena 429 (RPD habis)
+  # Models dirotasi per attempt — jika satu kena rate limit, langsung skip ke berikutnya
   fallback:
     base_url: "https://openrouter.ai/api/v1"
     api_key: "${OPENROUTER_API_KEY}"
-    model: "mistralai/mistral-small-3.1-24b-instruct:free"  # free tier OpenRouter
+    models:
+      - "nousresearch/hermes-3-llama-3.1-405b:free"      # attempt 3 — reasoning terkuat
+      - "meta-llama/llama-3.3-70b-instruct:free"          # attempt 4 — 70B general
+      - "qwen/qwen3-coder:free"                            # attempt 5 — spesialis coding
+      - "mistralai/mistral-small-3.1-24b-instruct:free"   # attempt 6 — fast fallback
 
 telegram:
   bot_token: "${TELEGRAM_BOT_TOKEN}"

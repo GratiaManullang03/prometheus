@@ -91,6 +91,10 @@ def build_components(cfg: dict) -> tuple:
         cooldown_seconds=llm_cfg.get("model_cooldown_seconds", 300),
     )
     fallback_cfg = llm_cfg.get("fallback", {})
+    # Support list of models (new) or single model string (legacy)
+    fallback_models = fallback_cfg.get("models") or (
+        [fallback_cfg["model"]] if fallback_cfg.get("model") else []
+    )
     brain = Brain(
         registry=registry,
         max_tokens=llm_cfg["max_tokens"],
@@ -100,7 +104,7 @@ def build_components(cfg: dict) -> tuple:
         api_key=llm_cfg["api_key"],
         fallback_base_url=fallback_cfg.get("base_url"),
         fallback_api_key=fallback_cfg.get("api_key"),
-        fallback_model=fallback_cfg.get("model"),
+        fallback_models=fallback_models,
     )
 
     planner = Planner()

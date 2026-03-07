@@ -207,7 +207,7 @@ class Brain:
         api_key: Optional[str] = None,
         fallback_base_url: Optional[str] = None,
         fallback_api_key: Optional[str] = None,
-        fallback_model: Optional[str] = None,
+        fallback_models: Optional[list] = None,
     ) -> None:
         self._client = OpenAI(
             base_url=base_url,
@@ -215,15 +215,19 @@ class Brain:
             max_retries=0,
         )
         # Fallback ke OpenRouter jika primary provider kena rate limit
+        # Mendukung multiple fallback models — dirotasi per attempt
         self._fallback_client: Optional[OpenAI] = None
-        self._fallback_model = fallback_model
+        self._fallback_models: list = fallback_models or []
         if fallback_base_url and fallback_api_key:
             self._fallback_client = OpenAI(
                 base_url=fallback_base_url,
                 api_key=fallback_api_key,
                 max_retries=0,
             )
-            logger.info("Brain: fallback provider dikonfigurasi (%s)", fallback_base_url)
+            logger.info(
+                "Brain: fallback provider dikonfigurasi (%s) — %d model tersedia",
+                fallback_base_url, len(self._fallback_models),
+            )
         self._registry = registry
         self._max_tokens = max_tokens
         self._temperature = temperature
@@ -340,21 +344,22 @@ class Brain:
                 logger.info("Brain: menunggu 15s sebelum retry attempt %d", attempt + 1)
                 time.sleep(15)
 
-            # Setelah 2x 429 dari primary, coba fallback provider (OpenRouter)
+            # Setelah 2x 429 dari primary, rotasi fallback models (OpenRouter)
             use_fallback = (
                 primary_429_count >= 2
                 and self._fallback_client is not None
-                and self._fallback_model is not None
+                and bool(self._fallback_models)
             )
             client = self._fallback_client if use_fallback else self._client
-            model = self._fallback_model if use_fallback else self._registry.get_model(task_type)
-
             if use_fallback:
+                fallback_idx = min(attempt - 2, len(self._fallback_models) - 1)
+                model = self._fallback_models[fallback_idx]
                 logger.info(
-                    "Brain: LLM call attempt %d/%d model=%s task=%s [FALLBACK:openrouter]",
-                    attempt + 1, _MAX_RETRIES, model, task_type.value,
+                    "Brain: LLM call attempt %d/%d model=%s task=%s [FALLBACK #%d]",
+                    attempt + 1, _MAX_RETRIES, model, task_type.value, fallback_idx + 1,
                 )
             else:
+                model = self._registry.get_model(task_type)
                 logger.info(
                     "Brain: LLM call attempt %d/%d model=%s task=%s",
                     attempt + 1, _MAX_RETRIES, model, task_type.value,
