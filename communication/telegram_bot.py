@@ -59,6 +59,7 @@ class TelegramBot:
         self._running = False
         self._poll_thread: Optional[threading.Thread] = None
         self._status_provider: Optional[Callable[[], str]] = None
+        self._chat_handler: Optional[Callable[[str], str]] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -116,6 +117,14 @@ class TelegramBot:
         """Register a callable that returns a formatted agent status string."""
         self._status_provider = provider
 
+    def set_chat_handler(self, handler: Callable[[str], str]) -> None:
+        """Register a callable that handles free-form operator questions.
+
+        Args:
+            handler: Takes operator message, returns response string.
+        """
+        self._chat_handler = handler
+
     # ------------------------------------------------------------------
 
     def _poll_loop(self) -> None:
@@ -168,12 +177,29 @@ class TelegramBot:
         if not text:
             return
 
-        if text.startswith("/status") or text.lower() in ("status",):
+        if text.startswith("/status") or text.lower() == "status":
             self._send_status()
         elif text.startswith("/help"):
-            self.send_message("Perintah tersedia:\n/status — lihat kondisi agen\n/help — tampilkan bantuan ini")
+            self.send_message(
+                "Perintah tersedia:\n"
+                "/status — lihat kondisi agen\n"
+                "/help — tampilkan bantuan ini\n\n"
+                "Atau ketik pertanyaan apa saja dan saya akan menjawabnya."
+            )
         else:
+            self._handle_chat(text)
+
+    def _handle_chat(self, text: str) -> None:
+        """Handle free-form question using registered chat handler."""
+        if self._chat_handler is None:
             self._send_status()
+            return
+        try:
+            response = self._chat_handler(text)
+            self.send_message(response)
+        except Exception as exc:
+            logger.error("TelegramBot: chat handler failed: %s", exc)
+            self.send_message("Maaf, gagal memproses pertanyaanmu saat ini.")
 
     def _send_status(self) -> None:
         """Send current agent status to operator."""

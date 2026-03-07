@@ -129,7 +129,12 @@ class ExperimentManager:
             if container_result.success:
                 self._on_success(exp)
             else:
-                reason = container_result.error or container_result.stderr or "unknown error"
+                reason = (
+                container_result.error
+                or container_result.stderr
+                or container_result.stdout[:500]
+                or "unknown error"
+            )
                 self._on_failure(exp, reason)
 
         except Exception as exc:

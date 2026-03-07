@@ -31,7 +31,7 @@ docker:
 git:
   workspace_path: "./workspace/source_code"
   versions_path: "./workspace/versions"
-  default_branch: "main"
+  default_branch: "master"
   experimental_branch_prefix: "experiment"
 
 memory:

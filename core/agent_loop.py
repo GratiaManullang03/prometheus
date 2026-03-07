@@ -104,6 +104,7 @@ class AgentLoop:
         registry: ModelRegistry,
         loop_interval: int = 300,
         goal: str = "Improve agent performance, reliability and capabilities.",
+        default_branch: str = "master",
     ) -> None:
         self._brain = brain
         self._planner = planner
@@ -116,6 +117,7 @@ class AgentLoop:
         self._registry = registry
         self._interval = loop_interval
         self._goal = goal
+        self._default_branch = default_branch
         self._start_time = time.time()
         self._running = False
 
@@ -197,8 +199,21 @@ class AgentLoop:
         plan_obj = self._brain.reason(state.to_dict(), self._goal)
         logger.info("AgentLoop: brain produced plan (risk=%s)", plan_obj.risk)
 
+        self._approval.notify(
+            f"[Cycle {cycle_id[:8]}] Plan baru:\n"
+            f"Problem: {plan_obj.problem[:120]}\n"
+            f"Solusi: {plan_obj.proposed_solution[:120]}\n"
+            f"Risk: {plan_obj.risk} | Approval: {'diperlukan' if plan_obj.requires_human_approval else 'tidak'}"
+        )
+
         exec_plan = self._planner.build(plan_obj, cycle_id)
         self._execute_plan(exec_plan, plan_obj)
+
+        completed = sum(1 for t in exec_plan.tasks if t.status.value == "completed")
+        failed = sum(1 for t in exec_plan.tasks if t.status.value == "failed")
+        self._approval.notify(
+            f"[Cycle {cycle_id[:8]}] Selesai — {completed} task sukses, {failed} gagal."
+        )
 
         logger.info("=== CYCLE %s END ===", cycle_id)
 
@@ -278,7 +293,7 @@ class AgentLoop:
                 logger.info("AgentLoop: auto-applied → %s", rel_path)
             commit_msg = f"feat: auto-applied improvement from plan {plan_id[:8]}"
             self._git.commit_all(commit_msg)
-            self._git.checkout("main")
+            self._git.checkout(self._default_branch)
             logger.info("AgentLoop: low-risk patches committed for plan %s", plan_id[:8])
         except Exception as exc:
             logger.error("AgentLoop: gagal auto-apply patches: %s", exc)
@@ -419,7 +434,7 @@ class AgentLoop:
             tags = self._git.list_tags()
             version = self._next_version(tags)
             self._git.tag(version, f"Stable release after plan {plan_id[:8]}")
-            self._git.checkout("main")
+            self._git.checkout(self._default_branch)
 
             self._approval.notify(
                 f"Perubahan berhasil di-commit sebagai {version} ({commit_hash[:8]})"

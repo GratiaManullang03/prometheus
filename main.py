@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+import json
 import yaml
 
 # Load .env sebelum apapun — variabel di sini akan tersedia via os.environ
@@ -33,7 +34,7 @@ from core.brain import Brain
 from core.model_registry import ModelRegistry
 from core.planner import Planner
 from experiments.experiment_manager import ExperimentManager
-from memory.memory_manager import MemoryManager
+from memory.memory_manager import MemoryCategory, MemoryManager
 from tools.browser_agent import BrowserAgent
 from tools.docker_runner import DockerRunner
 from tools.file_editor import FileEditor
@@ -140,7 +141,32 @@ def build_components(cfg: dict) -> tuple:
 
     browser = BrowserAgent()
 
-    return brain, planner, experiments, gate, memory, git, browser, bot, file_editor, registry
+    return brain, planner, experiments, gate, memory, git, browser, bot, file_editor, registry, git_cfg["default_branch"]
+
+
+def _make_chat_handler(brain, memory: MemoryManager):
+    """Build a chat handler closure that answers operator questions using memory context."""
+    def handler(text: str) -> str:
+        failures = memory.retrieve(MemoryCategory.PAST_FAILURES, limit=3)
+        successes = memory.retrieve(MemoryCategory.SUCCESSFUL_IMPROVEMENTS, limit=3)
+        decisions = memory.retrieve(MemoryCategory.ARCHITECTURE_DECISIONS, limit=5)
+        context = json.dumps({
+            "recent_failures": [
+                {k: v for k, v in f.get("content", f).items()
+                 if k in ("description", "error", "state", "plan_id")}
+                for f in failures
+            ],
+            "recent_successes": [
+                {k: v for k, v in s.get("content", s).items()
+                 if k in ("description", "state", "plan_id")}
+                for s in successes
+            ],
+            "architecture_decisions": [
+                d.get("content", d) for d in decisions
+            ],
+        }, indent=2, ensure_ascii=False)[:2000]
+        return brain.chat(text, context)
+    return handler
 
 
 def main() -> None:
@@ -162,7 +188,7 @@ def main() -> None:
     logger = logging.getLogger("prometheus.main")
     logger.info("Prometheus v%s starting", agent_cfg["version"])
 
-    brain, planner, experiments, gate, memory, git, browser, bot, file_editor, registry = build_components(cfg)
+    brain, planner, experiments, gate, memory, git, browser, bot, file_editor, registry, default_branch = build_components(cfg)
 
     loop = AgentLoop(
         brain=brain,
@@ -176,7 +202,10 @@ def main() -> None:
         registry=registry,
         loop_interval=agent_cfg["loop_interval_seconds"],
         goal=args.goal or "Improve agent performance, reliability, and capabilities.",
+        default_branch=default_branch,
     )
+
+    bot.set_chat_handler(_make_chat_handler(brain, memory))
 
     bot.set_status_provider(loop.get_status)
 

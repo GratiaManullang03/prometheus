@@ -57,6 +57,8 @@ Rules:
 - Prefer modifying existing files over creating new ones.
 - New files must be small and focused — do not generate files larger than 150 lines.
 - Config files (JSON, YAML) should only be created if clearly justified and minimal.
+- Before proposing a test file (e.g. tests/test_foo.py) that imports a module (e.g. from foo import ...), verify that the module file (foo.py or foo/__init__.py) already exists in workspace_files. If it does NOT exist, propose creating the MODULE first in required_changes, then the test — or update an existing test instead.
+- Study past_failures in SYSTEM STATE carefully. If a previous cycle failed due to a missing module, do NOT repeat the same mistake. Address the root cause directly.
 """
 
 _SYSTEM_PROMPT_CODING = """You are an expert Python software engineer.
@@ -64,6 +66,13 @@ You will be given: current file content, a description of changes needed, and co
 Your task: produce the COMPLETE new file content with the requested changes applied.
 Output ONLY the raw Python code — no markdown fences, no explanation.
 The code must be syntactically valid Python.
+"""
+
+_SYSTEM_PROMPT_CHAT = """You are Prometheus, a self-improving autonomous software agent.
+You are answering a question from your human operator via Telegram.
+Be concise, honest, and informative. Answer in the same language the operator uses (Indonesian or English).
+Use the provided CONTEXT (recent memory) to give accurate, specific answers.
+Do NOT output JSON — just plain conversational text. Keep responses under 300 words.
 """
 
 # Jumlah maksimal percobaan = jumlah model terpanjang di katalog (6 untuk REASONING)
@@ -179,6 +188,26 @@ class Brain:
             plan.risk, plan.requires_human_approval,
         )
         return plan
+
+    def chat(self, message: str, context: str = "") -> str:
+        """Answer a free-form question from the operator via Telegram.
+
+        Args:
+            message: The operator's message/question.
+            context: Memory context to inform the answer (JSON string).
+
+        Returns:
+            Conversational response string.
+        """
+        user_msg = (
+            f"CONTEXT (recent agent memory):\n{context}\n\nQUESTION: {message}"
+            if context else message
+        )
+        return self._call_with_fallback(
+            system=_SYSTEM_PROMPT_CHAT,
+            user=user_msg,
+            task_type=ModelTaskType.FAST,
+        )
 
     def generate_code(
         self,

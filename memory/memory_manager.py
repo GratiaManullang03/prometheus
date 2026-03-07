@@ -112,6 +112,7 @@ class MemoryManager:
             self._data = {
                 "version": "1.0",
                 "created_at": datetime.now(timezone.utc).isoformat(),
+                "agent": "prometheus",
             }
             for cat in MemoryCategory:
                 self._data[cat.value] = []

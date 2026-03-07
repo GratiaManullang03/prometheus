@@ -148,28 +148,51 @@ class BrowserAgent:
             return self._ddg_search(query, limit)
 
     def _ddg_search(self, query: str, limit: int) -> list[SearchResult]:
-        """Search via DuckDuckGo Lite (no JS)."""
+        """Search via DuckDuckGo HTML endpoint (POST)."""
         try:
-            with httpx.Client(timeout=_REQUEST_TIMEOUT, headers=self._headers) as client:
-                params = {"q": query, "kl": "us-en"}
-                resp = client.get("https://lite.duckduckgo.com/lite/", params=params)
+            headers = {
+                **self._headers,
+                "Content-Type": "application/x-www-form-urlencoded",
+            }
+            with httpx.Client(
+                timeout=_REQUEST_TIMEOUT,
+                headers=headers,
+                follow_redirects=True,
+            ) as client:
+                resp = client.post(
+                    "https://html.duckduckgo.com/html/",
+                    data={"q": query, "kl": "us-en"},
+                )
                 resp.raise_for_status()
-                return self._parse_ddg_html(resp.text, limit)
+                results = self._parse_ddg_html(resp.text, limit)
+                logger.info("BrowserAgent: DDG returned %d results for %r", len(results), query[:60])
+                return results
         except Exception as exc:
             logger.error("DDG search failed: %s", exc)
             return []
 
     @staticmethod
     def _parse_ddg_html(html: str, limit: int) -> list[SearchResult]:
-        """Very simple DDG Lite result extractor."""
+        """Parse DuckDuckGo HTML search results."""
         import re
         results: list[SearchResult] = []
-        snippets = re.findall(r'class="result-snippet"[^>]*>(.*?)</span>', html, re.DOTALL)
-        links = re.findall(r'<a rel="nofollow" href="([^"]+)"[^>]*>(.*?)</a>', html)
-        for i, (url, title) in enumerate(links[:limit]):
+
+        title_links = re.findall(
+            r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+            html, re.DOTALL,
+        )
+        snippets = re.findall(
+            r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>',
+            html, re.DOTALL,
+        )
+
+        for i, (url, title) in enumerate(title_links[:limit]):
             snippet = snippets[i] if i < len(snippets) else ""
-            snippet_clean = re.sub(r"<[^>]+>", "", snippet).strip()
-            results.append(SearchResult(title=title.strip(), url=url, snippet=snippet_clean))
+            results.append(SearchResult(
+                title=re.sub(r"<[^>]+>", "", title).strip(),
+                url=url,
+                snippet=re.sub(r"<[^>]+>", "", snippet).strip(),
+            ))
         return results
 
     @staticmethod
