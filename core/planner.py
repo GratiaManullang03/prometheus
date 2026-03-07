@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class TaskType(str, Enum):
+    # Phase 1 — Self-improvement
     RESEARCH = "research"
     CODE_CHANGE = "code_change"
     CONFIG_CHANGE = "config_change"
@@ -22,6 +23,11 @@ class TaskType(str, Enum):
     REQUEST_APPROVAL = "request_approval"
     ROLLBACK = "rollback"
     STORE_MEMORY = "store_memory"
+    # Phase 2 — Economic agency
+    WEB_INTERACT = "web_interact"
+    EARN_MONEY = "earn_money"
+    # Phase 3 — Infrastructure & replication
+    PROVISION_INFRA = "provision_infra"
 
 
 class TaskStatus(str, Enum):
@@ -184,5 +190,8 @@ class Planner:
             "config": TaskType.CONFIG_CHANGE,
             "dependency": TaskType.DEPENDENCY_INSTALL,
             "docker": TaskType.DOCKER_TEST,
+            "web_interact": TaskType.WEB_INTERACT,
+            "earn_money": TaskType.EARN_MONEY,
+            "provision_infra": TaskType.PROVISION_INFRA,
         }
         return mapping.get(change_type_str, TaskType.CODE_CHANGE)

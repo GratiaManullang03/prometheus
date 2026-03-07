@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from typing import Callable
+
 from communication.human_approval import (
     ApprovalContext,
     ApprovalRejected,
@@ -30,6 +32,7 @@ from communication.human_approval import (
     HumanApprovalGate,
 )
 from core.brain import Brain, ImprovementPlan
+from core.context import AgentContext
 from core.model_registry import ModelRegistry
 from core.planner import ExecutionPlan, Planner, TaskStatus, TaskType
 from experiments.experiment_manager import ExperimentManager
@@ -65,11 +68,13 @@ class SystemState:
             "workspace_files": self.workspace_files or [],
             # Kirim konten aktual (bukan hanya hitungan) agar Brain bisa belajar
             "recent_failures": [
-                {k: v for k, v in f.items() if k in ("description", "error", "plan_id")}
+                {k: v for k, v in f.get("content", f).items()
+                 if k in ("description", "error", "plan_id", "state")}
                 for f in self.recent_failures[:3]
             ],
             "recent_successes": [
-                {k: v for k, v in s.items() if k in ("description", "plan_id", "summary")}
+                {k: v for k, v in s.get("content", s).items()
+                 if k in ("description", "plan_id", "summary", "state")}
                 for s in self.recent_successes[:3]
             ],
             "pending_ideas_count": len(self.pending_ideas),
@@ -120,6 +125,18 @@ class AgentLoop:
         self._default_branch = default_branch
         self._start_time = time.time()
         self._running = False
+        self._external_tools: dict[TaskType, Callable] = {}
+        self._context = AgentContext(
+            brain=brain,
+            memory=memory,
+            git=git,
+            browser=browser,
+            file_editor=file_editor,
+            experiments=experiment_manager,
+            approval=approval_gate,
+            registry=registry,
+            default_branch=default_branch,
+        )
 
     # ------------------------------------------------------------------
     # Public
@@ -148,6 +165,21 @@ class AgentLoop:
             if self._running:
                 logger.info("AgentLoop: sleeping %ds until next cycle", self._interval)
                 time.sleep(self._interval)
+
+    def register_tool(self, task_type: TaskType, handler: Callable) -> None:
+        """Register an external plugin handler for a TaskType.
+
+        External handlers take priority over built-in handlers.
+        Handler signature: (task, plan, improvement, patches, ctx: AgentContext) -> None
+
+        Example:
+            def my_handler(task, plan, improvement, patches, ctx):
+                result = ctx.brain.generate_code(...)
+                ctx.memory.store(...)
+            loop.register_tool(TaskType.EARN_MONEY, my_handler)
+        """
+        self._external_tools[task_type] = handler
+        logger.info("AgentLoop: registered external tool for %s", task_type.value)
 
     def stop(self) -> None:
         """Request graceful shutdown after current cycle."""
@@ -305,7 +337,18 @@ class AgentLoop:
         improvement: ImprovementPlan,
         code_patches: dict[str, str],
     ) -> None:
-        """Route a task to the appropriate handler."""
+        """Route a task to the appropriate handler.
+
+        External plugins (registered via register_tool) take priority
+        over built-in handlers, enabling Phase 2/3 tools to be added
+        without modifying this file.
+        """
+        if task.task_type in self._external_tools:
+            self._external_tools[task.task_type](
+                task, plan, improvement, code_patches, self._context
+            )
+            return
+
         handlers = {
             TaskType.RESEARCH: self._handle_research,
             TaskType.CODE_CHANGE: self._handle_code_change,

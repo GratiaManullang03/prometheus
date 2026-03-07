@@ -1,19 +1,23 @@
-"""Persistent memory system for the autonomous agent.
+"""Persistent memory system backed by SQLite with FTS5 full-text search.
 
-Tracks architecture decisions, tool docs, failures,
-successful improvements, and the ideas backlog.
+Replaces JSON flat-file backend (v1) with a proper database.
+Auto-migrates from legacy knowledge_base.json on first run.
+WAL mode enables concurrent reads across multiple agent instances (Phase 3+).
+Memory is NEVER deleted — only archived when over threshold.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 
 logger = logging.getLogger(__name__)
 
@@ -27,38 +31,21 @@ class MemoryCategory(str, Enum):
     EXPERIMENT_RESULTS = "experiment_results"
 
 
-class MemoryEntry:
-    """A single memory record."""
-
-    def __init__(self, category: MemoryCategory, content: dict[str, Any]) -> None:
-        self.id = str(uuid.uuid4())
-        self.category = category
-        self.content = content
-        self.created_at = datetime.now(timezone.utc).isoformat()
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "category": self.category.value,
-            "content": self.content,
-            "created_at": self.created_at,
-        }
-
-
 class MemoryManager:
-    """Thread-safe persistent JSON-backed memory store.
+    """Thread-safe SQLite-backed memory store with FTS5 full-text search.
 
-    Memory is NEVER deleted — only appended to or pruned
-    when exceeding the configured threshold (oldest entries
-    are archived, not removed).
+    Schema v2. Auto-migrates from legacy knowledge_base.json on first run.
+    WAL journal mode supports concurrent reads from multiple instances.
     """
 
     def __init__(self, db_path: str, max_entries: int = 1000) -> None:
-        self._path = Path(db_path)
+        path = Path(db_path)
+        self._db_path = path.with_suffix(".db") if path.suffix == ".json" else path
+        self._legacy_json = self._db_path.with_suffix(".json")
         self._max_entries = max_entries
         self._lock = threading.Lock()
-        self._data: dict[str, Any] = {}
-        self._load()
+        self._init_db()
+        self._maybe_migrate()
 
     # ------------------------------------------------------------------
     # Public API
@@ -66,100 +53,169 @@ class MemoryManager:
 
     def store(self, category: MemoryCategory, content: dict[str, Any]) -> str:
         """Persist a new memory entry; returns its ID."""
-        entry = MemoryEntry(category, content)
+        entry_id = str(uuid.uuid4())
+        created_at = datetime.now(timezone.utc).isoformat()
         with self._lock:
-            bucket: list = self._data.setdefault(category.value, [])
-            bucket.append(entry.to_dict())
-            self._maybe_prune(category.value)
-            self._save()
-        logger.info("Memory stored: category=%s id=%s", category.value, entry.id)
-        return entry.id
+            with self._db() as conn:
+                conn.execute(
+                    "INSERT INTO memories (id, category, content, created_at) VALUES (?,?,?,?)",
+                    (entry_id, category.value, json.dumps(content, ensure_ascii=False), created_at),
+                )
+            self._maybe_prune(category)
+        logger.info("Memory stored: category=%s id=%s", category.value, entry_id[:8])
+        return entry_id
 
     def retrieve(
-        self,
-        category: MemoryCategory,
-        limit: int = 50,
-        offset: int = 0,
+        self, category: MemoryCategory, limit: int = 50, offset: int = 0
     ) -> list[dict[str, Any]]:
         """Return the most recent `limit` entries from a category."""
         with self._lock:
-            bucket: list = self._data.get(category.value, [])
-            return list(reversed(bucket))[offset : offset + limit]
+            with self._db() as conn:
+                rows = conn.execute(
+                    "SELECT id, category, content, created_at FROM memories "
+                    "WHERE category=? ORDER BY rowid DESC LIMIT ? OFFSET ?",
+                    (category.value, limit, offset),
+                ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
 
     def search(self, keyword: str) -> list[dict[str, Any]]:
-        """Full-text search across all categories."""
-        results: list[dict[str, Any]] = []
-        keyword_lower = keyword.lower()
+        """Full-text search across all categories using FTS5."""
         with self._lock:
-            for bucket in self._data.values():
-                for entry in bucket:
-                    if keyword_lower in json.dumps(entry).lower():
-                        results.append(entry)
-        return results
+            with self._db() as conn:
+                try:
+                    rows = conn.execute(
+                        "SELECT m.id, m.category, m.content, m.created_at "
+                        "FROM memories m JOIN memories_fts f ON f.id = m.id "
+                        "WHERE memories_fts MATCH ? ORDER BY rank LIMIT 50",
+                        (keyword,),
+                    ).fetchall()
+                except sqlite3.OperationalError:
+                    rows = conn.execute(
+                        "SELECT id, category, content, created_at FROM memories "
+                        "WHERE content LIKE ? LIMIT 50",
+                        (f"%{keyword}%",),
+                    ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
 
     def stats(self) -> dict[str, int]:
         """Return entry counts per category."""
         with self._lock:
-            return {k: len(v) for k, v in self._data.items() if isinstance(v, list)}
+            with self._db() as conn:
+                rows = conn.execute(
+                    "SELECT category, COUNT(*) FROM memories GROUP BY category"
+                ).fetchall()
+        result = {cat.value: 0 for cat in MemoryCategory}
+        result.update({row[0]: row[1] for row in rows})
+        return result
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Internal
     # ------------------------------------------------------------------
 
-    def _load(self) -> None:
-        """Load data from disk; initialise if file does not exist."""
-        if not self._path.exists():
-            self._data = {
-                "version": "1.0",
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "agent": "prometheus",
-            }
-            for cat in MemoryCategory:
-                self._data[cat.value] = []
-            self._save()
+    @contextmanager
+    def _db(self) -> Generator[sqlite3.Connection, None, None]:
+        conn = sqlite3.connect(str(self._db_path), timeout=30, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _init_db(self) -> None:
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._db() as conn:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS memories (
+                    id         TEXT PRIMARY KEY,
+                    category   TEXT NOT NULL,
+                    content    TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_cat ON memories(category);
+                CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+                    id UNINDEXED, category, content,
+                    content='memories', content_rowid='rowid'
+                );
+                CREATE TRIGGER IF NOT EXISTS mem_ai AFTER INSERT ON memories BEGIN
+                    INSERT INTO memories_fts(rowid, id, category, content)
+                    VALUES (new.rowid, new.id, new.category, new.content);
+                END;
+                CREATE TRIGGER IF NOT EXISTS mem_ad AFTER DELETE ON memories BEGIN
+                    INSERT INTO memories_fts(memories_fts, rowid, id, category, content)
+                    VALUES ('delete', old.rowid, old.id, old.category, old.content);
+                END;
+            """)
+        logger.info("MemoryManager: SQLite DB ready at %s", self._db_path)
+
+    def _maybe_migrate(self) -> None:
+        if not self._legacy_json.exists():
             return
         try:
-            with self._path.open("r", encoding="utf-8") as fh:
-                self._data = json.load(fh)
-            logger.info("Memory loaded from %s", self._path)
+            data = json.loads(self._legacy_json.read_text("utf-8"))
+            count = 0
+            with self._lock, self._db() as conn:
+                for cat in MemoryCategory:
+                    for entry in data.get(cat.value, []):
+                        conn.execute(
+                            "INSERT OR IGNORE INTO memories (id,category,content,created_at) VALUES (?,?,?,?)",
+                            (
+                                entry.get("id", str(uuid.uuid4())),
+                                cat.value,
+                                json.dumps(entry.get("content", {}), ensure_ascii=False),
+                                entry.get("created_at") or datetime.now(timezone.utc).isoformat(),
+                            ),
+                        )
+                        count += 1
+            archive = self._legacy_json.with_suffix(".json.migrated")
+            self._legacy_json.rename(archive)
+            logger.info(
+                "MemoryManager: migrated %d entries JSON→SQLite, archived to %s", count, archive
+            )
         except Exception as exc:
-            logger.error("Failed to load memory: %s — starting fresh", exc)
-            self._data = {}
-            for cat in MemoryCategory:
-                self._data[cat.value] = []
+            logger.error("MemoryManager: migration failed: %s", exc)
 
-    def _save(self) -> None:
-        """Atomically write data to disk."""
-        tmp = self._path.with_suffix(".tmp")
-        try:
-            with tmp.open("w", encoding="utf-8") as fh:
-                json.dump(self._data, fh, indent=2, ensure_ascii=False)
-            tmp.replace(self._path)
-        except Exception as exc:
-            logger.error("Failed to save memory: %s", exc)
-            tmp.unlink(missing_ok=True)
+    def _maybe_prune(self, category: MemoryCategory) -> None:
+        with self._db() as conn:
+            (count,) = conn.execute(
+                "SELECT COUNT(*) FROM memories WHERE category=?", (category.value,)
+            ).fetchone()
+            if count <= self._max_entries:
+                return
+            to_del = count - self._max_entries
+            old = conn.execute(
+                "SELECT id, category, content, created_at FROM memories "
+                "WHERE category=? ORDER BY rowid ASC LIMIT ?",
+                (category.value, to_del),
+            ).fetchall()
+            self._append_archive(category.value, [self._row_to_dict(r) for r in old])
+            ids = [r[0] for r in old]
+            conn.execute(
+                f"DELETE FROM memories WHERE id IN ({','.join('?'*len(ids))})", ids
+            )
+        logger.info("MemoryManager: pruned %d from %s", to_del, category.value)
 
-    def _maybe_prune(self, category_key: str) -> None:
-        """Keep only the newest entries when over threshold."""
-        bucket: list = self._data.get(category_key, [])
-        if len(bucket) <= self._max_entries:
-            return
-        cutoff = len(bucket) - self._max_entries
-        archive_path = self._path.parent / f"archive_{category_key}.json"
-        archived = bucket[:cutoff]
-        self._data[category_key] = bucket[cutoff:]
-        try:
-            existing: list = []
-            if archive_path.exists():
-                with archive_path.open("r", encoding="utf-8") as fh:
-                    existing = json.load(fh)
-            with archive_path.open("w", encoding="utf-8") as fh:
-                json.dump(existing + archived, fh, indent=2, ensure_ascii=False)
-        except Exception as exc:
-            logger.warning("Could not archive pruned entries: %s", exc)
-        logger.info(
-            "Pruned %d entries from %s — archived to %s",
-            cutoff,
-            category_key,
-            archive_path,
+    def _append_archive(self, category_key: str, entries: list) -> None:
+        path = self._db_path.parent / f"archive_{category_key}.json"
+        existing: list = []
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text("utf-8"))
+            except Exception:
+                pass
+        path.write_text(
+            json.dumps(existing + entries, indent=2, ensure_ascii=False), "utf-8"
         )
+
+    @staticmethod
+    def _row_to_dict(row) -> dict[str, Any]:
+        return {
+            "id": row[0],
+            "category": row[1],
+            "content": json.loads(row[2]),
+            "created_at": row[3],
+        }
