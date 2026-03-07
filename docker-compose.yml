@@ -21,7 +21,6 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
     working_dir: /app
-    command: ["python", "main.py"]
     # SECURITY NOTE: Docker socket gives container equivalent power to host root.
     # In production, replace with a scoped socket proxy (e.g. tecnativa/docker-socket-proxy)
     # that allows only: build, create, start, logs, inspect, remove — and blocks privileged/bind mounts.

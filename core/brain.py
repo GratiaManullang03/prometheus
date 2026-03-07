@@ -97,6 +97,8 @@ Rules:
 - Never propose changes to immutable_rules or config/config.yaml secrets.
 - ONLY propose changes to files listed in workspace_files.
 - New files must be small and focused — max 150 lines.
+- JANGAN propose perubahan pada file yang lebih dari 200 baris (core/agent_loop.py, dll).
+  Untuk file besar: buat file helper baru yang kecil dan import dari sana.
 - All test files MUST use imports relative to project root (e.g. `from core.brain import Brain`).
   Never use bare module names (e.g. never `from brain import` — it will fail).
 - Study past_failures carefully. Never repeat a mistake from a previous cycle.

@@ -393,6 +393,13 @@ class AgentLoop:
             current = ""
             logger.info("AgentLoop: %s belum ada — akan dibuat baru", target)
 
+        # Tolak modifikasi file yang terlalu besar — Brain tidak bisa regenerate dengan benar
+        if current and len(current.splitlines()) > 200:
+            raise RuntimeError(
+                f"File {target} memiliki {len(current.splitlines())} baris (>200) — "
+                "terlalu besar untuk di-regenerate. Buat helper module terpisah."
+            )
+
         # Kumpulkan konteks riset dari task sebelumnya
         research_context = ""
         for t in plan.tasks:
@@ -407,6 +414,17 @@ class AgentLoop:
             target_path=target,
             context=research_context,
         )
+
+        # Validasi syntax Python sebelum di-stage — cegah SyntaxError di Docker
+        if target.endswith(".py"):
+            import ast
+            try:
+                ast.parse(new_content)
+            except SyntaxError as exc:
+                raise RuntimeError(
+                    f"Generated code syntax error in {target} — tidak di-stage: {exc}"
+                )
+
         patches[target] = new_content
         logger.info(
             "AgentLoop: kode baru di-stage untuk %s (%d chars)",
