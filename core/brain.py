@@ -438,7 +438,13 @@ class Brain:
         end = raw.rfind("}") + 1
         if start == -1 or end == 0:
             raise ValueError(f"Tidak ada JSON dalam response LLM: {raw[:200]}")
-        data = json.loads(raw[start:end])
+        import re
+        json_str = raw[start:end]
+        json_str = re.sub(r",\s*([\]}])", r"\1", json_str)
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"JSON malformed dari LLM (sudah dicoba repair): {exc} — raw: {json_str[:300]}")
         return ImprovementPlan(
             problem=data.get("problem", ""),
             root_cause=data.get("root_cause", ""),

@@ -3,12 +3,14 @@ FROM python:3.12-slim
 LABEL maintainer="prometheus-agent"
 LABEL description="Prometheus main agent runtime container"
 
-# Install Docker CLI, git, curl, and Playwright system deps
+# Install Docker CLI (official), git, curl, and Playwright system deps
+# Note: docker.io only provides dockerd (daemon), not the CLI binary.
+# We download the official static Docker CLI binary directly.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        docker.io \
         git \
         curl \
+        ca-certificates \
         # Playwright/Chromium system dependencies
         libnss3 \
         libatk-bridge2.0-0 \
@@ -16,7 +18,11 @@ RUN apt-get update \
         libxkbcommon0 \
         libgbm1 \
         libasound2 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && DOCKER_VERSION=27.5.1 \
+    && curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" \
+       | tar xz --strip-components=1 -C /usr/local/bin docker/docker \
+    && chmod +x /usr/local/bin/docker
 
 WORKDIR /app
 

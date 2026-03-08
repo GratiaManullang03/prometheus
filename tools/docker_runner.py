@@ -133,7 +133,16 @@ class DockerRunner:
         """Copy workspace to temp dir and apply patches."""
         tmpdir = Path(tempfile.mkdtemp(prefix="prometheus_exp_"))
         if self._workspace.exists():
-            shutil.copytree(self._workspace, tmpdir / "src", dirs_exist_ok=True)
+            shutil.copytree(
+                self._workspace,
+                tmpdir / "src",
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns(
+                    "venv", ".venv", "__pycache__", "*.pyc", "*.pyo",
+                    ".git", "logs", "memory", "workspace", ".env",
+                    "*.db", "*.db-wal", "*.db-shm",
+                ),
+            )
         shutil.copy2(self._dockerfile, tmpdir / "Dockerfile")
         if patches:
             src_root = (tmpdir / "src").resolve()
